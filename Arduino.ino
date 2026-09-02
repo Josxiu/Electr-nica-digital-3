@@ -7,7 +7,7 @@
 
 const int LED[4] = {2, 3, 4, 5};     // <-- tus GPIO de los LEDs 1 a 4
 
-const int BOTON[4] = {6, 8, 12, 13};   // <-- tus GPIO de los pulsadores 1 a 4
+const int BOTON[4] = {6, 7, 8, 9};   // <-- tus GPIO de los pulsadores 1 a 4
 
 const unsigned long T_ANTIRREBOTE = 25;   // ms que debe sostenerse una lectura
 
@@ -70,7 +70,7 @@ int vidas = 3;
 int tiempo = 0;
 
 // --- Estado de la presentacion ---
-enum Estado { PRESENTACION, PAUSA };
+enum Estado { PRESENTACION, INGRESO, PAUSA };
 Estado estado = PRESENTACION;
 
 int  periodo = 1000;        // duracion de cada elemento, en ms
@@ -78,7 +78,8 @@ int  encendido = 700;       // parte del periodo con el LED prendido
 int  paso = 0;              // cual elemento se esta mostrando
 bool ledEncendido = false;  // si el LED del paso actual esta prendido
 unsigned long tPaso = 0;    // instante en que empezo el elemento actual
-
+int  indiceJugador = 0;     // cuantos elementos correctos lleva el jugador
+bool subirDespues = false;  // al terminar la pausa: ¿subir de nivel o repetir?
 
 /**
  * Prepara el nivel actual y arranca la presentacion de su secuencia.
@@ -154,6 +155,37 @@ bool botonPresionado(Boton &b) {
   return true;
 }
 
+/**
+ * El jugador reprodujo toda la secuencia correctamente.
+ * Se programa una pausa y luego se sube de nivel.
+ */
+void acierto(unsigned long ahora) {
+  Serial.println("  == NIVEL SUPERADO ==");
+  subirDespues = true;
+  tPaso = ahora;
+  estado = PAUSA;
+}
+
+/**
+ * El jugador se equivoco. Pierde una vida y repite el MISMO nivel con la
+ * MISMA secuencia. Si se queda sin vidas, la partida vuelve a empezar.
+ */
+void fallo(unsigned long ahora) {
+  vidas--;
+  Serial.print("  == FALLASTE | vidas restantes: ");
+  Serial.println(vidas);
+
+  if (vidas <= 0) {
+    Serial.println("  == SIN VIDAS: partida reiniciada ==");
+    nivel = 1;
+    vidas = 3;
+    secuencia[0] = random(0, 4);   // secuencia nueva
+  }
+
+  subirDespues = false;   // repetir nivel (o empezar de cero si se reinicio)
+  tPaso = ahora;
+  estado = PAUSA;
+}
 
 void setup() {
   Serial.begin(115200);
@@ -177,13 +209,7 @@ void loop() {
   // --- Leer las entradas: SIEMPRE, en cada vuelta, pase lo que pase ---
   for (int i = 0; i < 4; i++) botonLeer(btn[i], ahora);
 
-  // --- PRUEBA TEMPORAL: quitar cuando el juego use los botones ---
-  for (int i = 0; i < 4; i++) {
-    if (botonPresionado(btn[i])) {
-      Serial.print("Boton ");
-      Serial.println(i + 1);
-    }
-  }
+
 
   if (estado == PRESENTACION) {
     unsigned long transcurrido = ahora - tPaso;
@@ -196,9 +222,13 @@ void loop() {
     // ¿ya se acabo el periodo completo? -> pasar al siguiente elemento
     else if (!ledEncendido && transcurrido >= periodo) {
       paso++;
-      if (paso >= nivel) {          // se acabo la secuencia
-        estado = PAUSA;
-        tPaso = ahora;
+      if (paso >= nivel) {          // se acabo la presentacion: turno del jugador
+        indiceJugador = 0;
+        // Descarta pulsaciones hechas DURANTE la presentacion: ahi los
+        // pulsadores estan desactivados y no deben contar como entrada.
+        for (int i = 0; i < 4; i++) botonPresionado(btn[i]);
+        Serial.println("  tu turno...");
+        estado = INGRESO;
       } else {
         tPaso = ahora;
         ledEncendido = true;
@@ -207,10 +237,36 @@ void loop() {
     }
   }
 
+    else if (estado == INGRESO) {
+    for (int i = 0; i < 4; i++) {
+      if (botonPresionado(btn[i])) {
+        Serial.print("  pulsaste ");
+        Serial.print(i + 1);
+
+        if (i == secuencia[indiceJugador]) {      // acerto este elemento
+          indiceJugador++;
+          Serial.print("  ok (");
+          Serial.print(indiceJugador);
+          Serial.print("/");
+          Serial.print(nivel);
+          Serial.println(")");
+
+          if (indiceJugador >= nivel) acierto(ahora);   // completo la secuencia
+        }
+        else {                                    // se equivoco
+          Serial.print("  MAL, era el ");
+          Serial.println(secuencia[indiceJugador] + 1);
+          fallo(ahora);
+        }
+        break;   // solo un boton por vuelta
+      }
+    }
+  }
+
   else if (estado == PAUSA) {
-    if (ahora - tPaso >= 2000) {
-      subirNivel();
-      iniciarNivel();
+    if (ahora - tPaso >= 1500) {
+      if (subirDespues) subirNivel();   // acierto -> nivel nuevo + elemento nuevo
+      iniciarNivel();                   // fallo   -> mismo nivel, misma secuencia
     }
   }
 }
