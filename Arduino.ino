@@ -1,13 +1,36 @@
-// Etapa 0: ver la secuencia en los LEDs + probar el display TM1637.
+// Etapa 0+1: secuencia en los LEDs, display TM1637 y pulsadores con antirrebote.
 // Muestra nivel 1, espera, agrega un elemento, muestra nivel 2, y repite.
+// Sin delay(): el loop nunca se queda esperando, por eso puede atender los
+// pulsadores en cualquier instante.
 
 #include <TM1637Display.h>
 
-const int LED[4] = {2, 3, 4, 5};   // <-- tus GPIO de los LEDs 1 a 4
+const int LED[4] = {2, 3, 4, 5};     // <-- tus GPIO de los LEDs 1 a 4
 
-const int BOTON[4] = {7, 8, 9, 10};   // <-- tus GPIO de los pulsadores 1 a 4
+const int BOTON[4] = {6, 8, 12, 13};   // <-- tus GPIO de los pulsadores 1 a 4
 
 const unsigned long T_ANTIRREBOTE = 25;   // ms que debe sostenerse una lectura
+
+/**
+ * Pulsador con antirrebote.
+ *
+ * Un contacto mecanico rebota unos milisegundos al cerrarse, asi que una sola
+ * pulsacion se leeria como varias. Por eso un cambio en la lectura solo se
+ * acepta si se mantuvo estable durante T_ANTIRREBOTE.
+ *
+ * NOTA: el struct va aqui arriba, antes de la primera funcion del archivo.
+ * El IDE de Arduino inserta los prototipos justo antes de la primera funcion,
+ * y esos prototipos ya mencionan el tipo Boton.
+ */
+struct Boton {
+  int  pin;
+  bool lectura;              // ultima lectura cruda del pin
+  bool estable;              // estado ya validado (true = presionado)
+  bool flanco;               // true en el instante de la pulsacion
+  unsigned long tCambio;     // cuando cambio la lectura cruda
+};
+
+Boton btn[4];
 
 // ---------- MODULO DISPLAY (TM1637, 4 digitos) ----------
 const int PIN_CLK = 15;            // <-- tus GPIO del TM1637
@@ -96,23 +119,71 @@ void subirNivel() {
   }
 }
 
+/** Configura el pin del pulsador y lo deja en estado conocido. */
+void botonIniciar(Boton &b, int pin) {
+  b.pin = pin;
+  pinMode(pin, INPUT_PULLUP);
+  b.lectura = false;
+  b.estable = false;
+  b.flanco  = false;
+  b.tCambio = 0;
+}
+
+/** Lee el pin y valida el cambio si ya paso el tiempo de antirrebote. */
+void botonLeer(Boton &b, unsigned long ahora) {
+  bool lect = (digitalRead(b.pin) == LOW);   // pull-up: LOW = presionado
+
+  if (lect != b.lectura) {        // cambio la lectura: reinicia el conteo
+    b.lectura = lect;
+    b.tCambio = ahora;
+  }
+
+  if ((ahora - b.tCambio) >= T_ANTIRREBOTE && lect != b.estable) {
+    b.estable = lect;
+    if (b.estable) b.flanco = true;   // flanco: se acaba de presionar
+  }
+}
+
+/**
+ * Devuelve true UNA sola vez por pulsacion y la consume.
+ * Sostener el boton no genera entradas repetidas.
+ */
+bool botonPresionado(Boton &b) {
+  if (!b.flanco) return false;
+  b.flanco = false;
+  return true;
+}
+
+
 void setup() {
   Serial.begin(115200);
 
   for (int i = 0; i < 4; i++) {
     pinMode(LED[i], OUTPUT);
     digitalWrite(LED[i], LOW);
+    botonIniciar(btn[i], BOTON[i]);
   }
 
   display.setBrightness(3);        // 0 = mas tenue, 7 = mas brillante
 
   randomSeed(micros());            // para que no salga siempre la misma
   secuencia[0] = random(0, 4);     // primer elemento del nivel 1
-  iniciarNivel();     // <-- arranca el primer nivel
+  iniciarNivel();                  // arranca el primer nivel
 }
 
 void loop() {
   unsigned long ahora = millis();   // una sola marca de tiempo por vuelta
+
+  // --- Leer las entradas: SIEMPRE, en cada vuelta, pase lo que pase ---
+  for (int i = 0; i < 4; i++) botonLeer(btn[i], ahora);
+
+  // --- PRUEBA TEMPORAL: quitar cuando el juego use los botones ---
+  for (int i = 0; i < 4; i++) {
+    if (botonPresionado(btn[i])) {
+      Serial.print("Boton ");
+      Serial.println(i + 1);
+    }
+  }
 
   if (estado == PRESENTACION) {
     unsigned long transcurrido = ahora - tPaso;
