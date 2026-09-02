@@ -5,6 +5,10 @@
 
 const int LED[4] = {2, 3, 4, 5};   // <-- tus GPIO de los LEDs 1 a 4
 
+const int BOTON[4] = {7, 8, 9, 10};   // <-- tus GPIO de los pulsadores 1 a 4
+
+const unsigned long T_ANTIRREBOTE = 25;   // ms que debe sostenerse una lectura
+
 // ---------- MODULO DISPLAY (TM1637, 4 digitos) ----------
 const int PIN_CLK = 15;            // <-- tus GPIO del TM1637
 const int PIN_DIO = 14;
@@ -42,6 +46,56 @@ int nivel = 1;
 int vidas = 3;
 int tiempo = 0;
 
+// --- Estado de la presentacion ---
+enum Estado { PRESENTACION, PAUSA };
+Estado estado = PRESENTACION;
+
+int  periodo = 1000;        // duracion de cada elemento, en ms
+int  encendido = 700;       // parte del periodo con el LED prendido
+int  paso = 0;              // cual elemento se esta mostrando
+bool ledEncendido = false;  // si el LED del paso actual esta prendido
+unsigned long tPaso = 0;    // instante en que empezo el elemento actual
+
+
+/**
+ * Prepara el nivel actual y arranca la presentacion de su secuencia.
+ */
+void iniciarNivel() {
+  float f   = 1.0 + 0.5 * ((nivel - 1) / 2);
+  periodo   = 1000 / f;
+  encendido = periodo * 0.7;
+
+  mostrarTablero(nivel, vidas, 0);
+
+  Serial.print("Nivel ");
+  Serial.print(nivel);
+  Serial.print(" -> secuencia: ");
+  for (int i = 0; i < nivel; i++) {
+    Serial.print(secuencia[i] + 1);
+    Serial.print(" ");
+  }
+  Serial.println();
+
+  paso = 0;
+  ledEncendido = true;
+  tPaso = millis();
+  digitalWrite(LED[secuencia[0]], HIGH);
+  estado = PRESENTACION;
+}
+
+/**
+ * Sube de nivel conservando la secuencia y agregando un elemento al final.
+ */
+void subirNivel() {
+  if (nivel < NIVEL_MAX) {
+    secuencia[nivel] = random(0, 4);
+    nivel++;
+  } else {
+    nivel = 1;
+    secuencia[0] = random(0, 4);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -54,41 +108,38 @@ void setup() {
 
   randomSeed(micros());            // para que no salga siempre la misma
   secuencia[0] = random(0, 4);     // primer elemento del nivel 1
+  iniciarNivel();     // <-- arranca el primer nivel
 }
 
 void loop() {
-  // --- frecuencia del nivel: 1-2 -> 1.0 Hz, 3-4 -> 1.5 Hz, etc. ---
-  float f = 1.0 + 0.5 * ((nivel - 1) / 2);
-  int periodo = 1000 / f;          // duracion de cada elemento, en ms
-  int encendido = periodo * 0.7;   // 70% prendido
-  int apagado   = periodo - encendido;  // 30% apagado: separa dos elementos iguales
+  unsigned long ahora = millis();   // una sola marca de tiempo por vuelta
 
-  mostrarTablero(nivel, vidas, 0);      // se refresca al entrar al nivel
+  if (estado == PRESENTACION) {
+    unsigned long transcurrido = ahora - tPaso;
 
-  Serial.print("Nivel ");
-  Serial.print(nivel);
-  Serial.print(" -> secuencia: ");
-
-  // --- mostrar la secuencia ---
-  for (int i = 0; i < nivel; i++) {
-    Serial.print(secuencia[i] + 1);
-    Serial.print(" ");
-
-    digitalWrite(LED[secuencia[i]], HIGH);
-    delay(encendido);
-    digitalWrite(LED[secuencia[i]], LOW);
-    delay(apagado);
+    // ¿ya toca apagar el LED de este elemento?
+    if (ledEncendido && transcurrido >= encendido) {
+      digitalWrite(LED[secuencia[paso]], LOW);
+      ledEncendido = false;
+    }
+    // ¿ya se acabo el periodo completo? -> pasar al siguiente elemento
+    else if (!ledEncendido && transcurrido >= periodo) {
+      paso++;
+      if (paso >= nivel) {          // se acabo la secuencia
+        estado = PAUSA;
+        tPaso = ahora;
+      } else {
+        tPaso = ahora;
+        ledEncendido = true;
+        digitalWrite(LED[secuencia[paso]], HIGH);
+      }
+    }
   }
-  Serial.println();
 
-  delay(2000);   // pausa para ver donde termina una secuencia y empieza la otra
-
-  // --- subir de nivel: se CONSERVA lo anterior y se agrega uno al final ---
-  if (nivel < NIVEL_MAX) {
-    secuencia[nivel] = random(0, 4);
-    nivel++;
-  } else {
-    nivel = 1;                     // vuelve a empezar
-    secuencia[0] = random(0, 4);
+  else if (estado == PAUSA) {
+    if (ahora - tPaso >= 2000) {
+      subirNivel();
+      iniciarNivel();
+    }
   }
 }
