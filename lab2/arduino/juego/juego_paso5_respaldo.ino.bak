@@ -1,0 +1,460 @@
+// Etapa 0+1+Paso 4+Paso 5: secuencia en LEDs, display TM1637, pulsadores con antirrebote,
+// tiempo límite con pálpito (LED 5), eco de entrada, tiempo acumulado, comandos de prueba,
+// y control de inicio/reinicio con estados ESPERA y FIN.
+
+#include <TM1637Display.h>
+
+const int LED[4] = {2, 3, 4, 5};     // <-- GPIOs de los LEDs 1 a 4
+const int BOTON[4] = {6, 7, 8, 9};   // <-- GPIOs de los pulsadores 1 a 4
+
+const int LED_TIEMPO = 10;   // <-- LED 5: indicador de tiempo disponible (GP10)
+const int BOTON_INICIO = 11; // <-- Pulsador de inicio / reinicio (GP11)
+
+const float FACTOR_RESPUESTA = 1.25;   // Tmaximo = 1,25 x Tpresentacion
+const unsigned long T_ECO = 150;       // ms que se enciende el LED al pulsar
+const unsigned long T_RESET = 2000;     // ms de pulsacion sostenida para reiniciar
+const int PALPITO_LENTO  = 400;        // periodo del LED 5 al empezar (ms)
+const int PALPITO_RAPIDO = 90;         // periodo del LED 5 al vencerse (ms)
+
+const unsigned long T_ANTIRREBOTE = 25;   // ms que debe sostenerse una lectura
+
+/**
+ * Pulsador con antirrebote.
+ */
+struct Boton {
+  int   pin;
+  bool lectura;              // ultima lectura cruda del pin
+  bool estable;              // estado ya validado (true = presionado)
+  bool flanco;               // true en el instante de la pulsacion
+  unsigned long tCambio;     // cuando cambio la lectura cruda
+};
+
+Boton btn[4];
+Boton btnInicio;
+
+// ---------- MODULO DISPLAY (TM1637, 4 digitos) ----------
+const int PIN_CLK = 15;            // <-- GPIOs del TM1637
+const int PIN_DIO = 14;
+
+TM1637Display display(PIN_CLK, PIN_DIO);
+
+// Ultimo valor escrito en el display, para no reescribir lo mismo.
+int ultNivel = -1, ultVidas = -1, ultTiempo = -1;
+
+/**
+ * Escribe los cuatro digitos del tablero, pero solo si algo cambio.
+ * Digito 1 = nivel | Digito 2 = vidas | Digitos 3-4 = tiempo acumulado en segundos (00-99).
+ */
+void mostrarTablero(int nivel, int vidas, int tiempo) {
+  if (nivel == ultNivel && vidas == ultVidas && tiempo == ultTiempo) return;
+  ultNivel = nivel; ultVidas = vidas; ultTiempo = tiempo;
+
+  uint8_t digitos[4];
+  digitos[0] = display.encodeDigit(nivel % 10);
+  digitos[1] = display.encodeDigit(vidas % 10);
+  digitos[2] = display.encodeDigit((tiempo / 10) % 10);   // decenas
+  digitos[3] = display.encodeDigit(tiempo % 10);          // unidades
+  display.setSegments(digitos);
+}
+// --------------------------------------------------------
+
+const int NIVEL_MAX = 9;
+int secuencia[9];                  // aqui se guarda la secuencia
+int nivel = 1;
+int vidas = 3;
+
+// --- Estado de la partida ---
+enum Estado { ESPERA, PRESENTACION, INGRESO, PAUSA, FIN };
+Estado estado = ESPERA;            // Arranca en espera, no presentando
+
+int  periodo = 1000;        // duracion de cada elemento, en ms
+int  encendido = 700;       // parte del periodo con el LED prendido
+int  paso = 0;              // cual elemento se esta mostrando
+bool ledEncendido = false;  // si el LED del paso actual esta prendido
+unsigned long tPaso = 0;    // instante en que empezo el elemento actual
+int  indiceJugador = 0;     // cuantos elementos correctos lleva el jugador
+bool subirDespues = false;  // al terminar la pausa: ¿subir de nivel o repetir?
+
+// --- Tiempo de respuesta y control de flujo ---
+unsigned long tMaximo = 0;          // ms permitidos para este intento
+unsigned long tInicioIngreso = 0;   // instante en que empezo el turno
+unsigned long tiempoAcumMs = 0;     // suma de TODOS los intentos
+
+// --- Palpito del LED de tiempo ---
+bool palpitoOn = false;
+unsigned long tPalpito = 0;
+
+// --- Eco luminoso al pulsar ---
+int ledEco = -1;                    // -1 = ninguno
+unsigned long tEco = 0;
+
+// --- Modos de prueba ---
+bool modoTiempo = true;   // false = sin limite de tiempo
+bool modoVidas  = true;   // false = vidas infinitas
+
+// --- Control de fin de partida y reset ---
+bool irAFin = false;         // la partida termino: al acabar la pausa se va a FIN
+bool resetYaHecho = false;   // evita reiniciar en bucle mientras se sostiene INICIO
+
+/**
+ * Prepara el nivel actual y arranca la presentacion de su secuencia.
+ */
+void iniciarNivel() {
+  float f   = 1.0 + 0.5 * ((nivel - 1) / 2);
+  periodo   = 1000 / f;
+  encendido = periodo * 0.7;
+  tMaximo   = (unsigned long)(nivel * periodo * FACTOR_RESPUESTA);
+
+  mostrarTablero(nivel, vidas, tiempoAcumMs / 1000);
+
+  Serial.print("Nivel ");
+  Serial.print(nivel);
+  Serial.print(" -> secuencia: ");
+  for (int i = 0; i < nivel; i++) {
+    Serial.print(secuencia[i] + 1);
+    Serial.print(" ");
+  }
+  Serial.print(" | Tpres ");
+  Serial.print(nivel * periodo);
+  Serial.print(" ms | Tmax ");
+  Serial.print(tMaximo);
+  Serial.println(" ms");
+
+  // Apaga todo antes de empezar, incluido un eco que haya quedado pendiente.
+  for (int i = 0; i < 4; i++) digitalWrite(LED[i], LOW);
+  ledEco = -1;
+  digitalWrite(LED_TIEMPO, LOW);
+
+  paso = 0;
+  ledEncendido = true;
+  tPaso = millis();
+  digitalWrite(LED[secuencia[0]], HIGH);
+  estado = PRESENTACION;
+}
+
+/**
+ * Sube de nivel conservando la secuencia y agregando un elemento al final.
+ */
+void subirNivel() {
+  if (nivel < NIVEL_MAX) {
+    secuencia[nivel] = random(0, 4);
+    nivel++;
+  } else {
+    nivel = 1;
+    secuencia[0] = random(0, 4);
+  }
+}
+
+/**
+ * Deja el juego en espera con los valores iniciales.
+ */
+void reiniciarPartida() {
+  nivel = 1;
+  vidas = 3;
+  tiempoAcumMs = 0;
+  irAFin = false;
+  subirDespues = false;
+
+  for (int i = 0; i < 4; i++) digitalWrite(LED[i], LOW);
+  ledEco = -1;
+  digitalWrite(LED_TIEMPO, LOW);
+
+  mostrarTablero(nivel, vidas, 0);
+  estado = ESPERA;
+  Serial.println("\n-- En espera. Pulsa INICIO para comenzar. --");
+}
+
+/**
+ * Comienza una partida nueva y toma la semilla aleatoria en el instante exacto.
+ */
+void empezarPartida() {
+  randomSeed(micros());
+  nivel = 1;
+  vidas = 3;
+  tiempoAcumMs = 0;
+  irAFin = false;
+  subirDespues = false;
+  secuencia[0] = random(0, 4);
+  Serial.println("\n=== PARTIDA NUEVA ===");
+  iniciarNivel();
+}
+
+/**
+ * Suma el tiempo de un intento al acumulado (satura a 99 s).
+ */
+void sumarTiempo(unsigned long ms) {
+  tiempoAcumMs += ms;
+  if (tiempoAcumMs > 99000UL) tiempoAcumMs = 99000UL;
+}
+
+/** Enciende brevemente el LED asociado a un pulsador. */
+void ecoIniciar(int i, unsigned long ahora) {
+  if (ledEco >= 0) digitalWrite(LED[ledEco], LOW);
+  ledEco = i;
+  tEco = ahora;
+  digitalWrite(LED[i], HIGH);
+}
+
+/** Apaga el LED del eco cuando se cumple su tiempo. */
+void ecoActualizar(unsigned long ahora) {
+  if (ledEco >= 0 && (ahora - tEco) >= T_ECO) {
+    digitalWrite(LED[ledEco], LOW);
+    ledEco = -1;
+  }
+}
+
+/** Comandos de prueba por el monitor serie. */
+void leerComandos() {
+  while (Serial.available() > 0) {
+    char c = Serial.read();
+
+    if (c == 't') {
+      modoTiempo = !modoTiempo;
+      Serial.print("\n*** limite de tiempo: ");
+      Serial.println(modoTiempo ? "ACTIVADO ***" : "DESACTIVADO ***");
+      if (!modoTiempo) digitalWrite(LED_TIEMPO, LOW);
+    }
+    else if (c == 'v') {
+      modoVidas = !modoVidas;
+      Serial.print("\n*** vidas: ");
+      Serial.println(modoVidas ? "ACTIVADAS ***" : "INFINITAS ***");
+    }
+    else if (c == 'r') {
+      Serial.println("\n*** reinicio manual ***");
+      reiniciarPartida();
+    }
+    else if (c == 'e') {
+      Serial.print("\n*** nivel ");     Serial.print(nivel);
+      Serial.print(" | vidas ");        Serial.print(vidas);
+      Serial.print(" | acumulado ");    Serial.print(tiempoAcumMs / 1000);
+      Serial.print(" s | modo tiempo "); Serial.print(modoTiempo ? "ON" : "OFF");
+      Serial.print(" | modo vidas ");   Serial.print(modoVidas ? "ON" : "OFF");
+      Serial.println(" ***");
+    }
+  }
+}
+
+/** Configura el pin del pulsador. */
+void botonIniciar(Boton &b, int pin) {
+  b.pin = pin;
+  pinMode(pin, INPUT_PULLUP);
+  b.lectura = false;
+  b.estable = false;
+  b.flanco  = false;
+  b.tCambio = 0;
+}
+
+/** Lee el pin y valida el cambio con antirrebote. */
+void botonLeer(Boton &b, unsigned long ahora) {
+  bool lect = (digitalRead(b.pin) == LOW);   // LOW = presionado
+
+  if (lect != b.lectura) {
+    b.lectura = lect;
+    b.tCambio = ahora;
+  }
+
+  if ((ahora - b.tCambio) >= T_ANTIRREBOTE && lect != b.estable) {
+    b.estable = lect;
+    if (b.estable) b.flanco = true;
+  }
+}
+
+/** Devuelve true UNA sola vez por pulsacion. */
+bool botonPresionado(Boton &b) {
+  if (!b.flanco) return false;
+  b.flanco = false;
+  return true;
+}
+
+/** El jugador reprodujo toda la secuencia correctamente. */
+void acierto(unsigned long ahora) {
+  sumarTiempo(ahora - tInicioIngreso);
+  digitalWrite(LED_TIEMPO, LOW);
+
+  Serial.print("  == NIVEL SUPERADO | intento ");
+  Serial.print(ahora - tInicioIngreso);
+  Serial.print(" ms | acumulado ");
+  Serial.print(tiempoAcumMs / 1000);
+  Serial.println(" s ==");
+
+  mostrarTablero(nivel, vidas, tiempoAcumMs / 1000);
+
+  if (nivel >= NIVEL_MAX) {
+    Serial.println("  *** NIVEL 9 COMPLETADO: PARTIDA GANADA ***");
+    irAFin = true;
+  } else {
+    subirDespues = true;
+  }
+
+  tPaso = ahora;
+  estado = PAUSA;
+}
+
+/** El jugador se equivoco o se le acabo el tiempo. */
+void fallo(unsigned long ahora, bool porTiempo) {
+  sumarTiempo(porTiempo ? tMaximo : (ahora - tInicioIngreso));
+  digitalWrite(LED_TIEMPO, LOW);
+
+  if (modoVidas) {
+    vidas--;
+    Serial.print("  == FALLASTE | vidas restantes: ");
+    Serial.print(vidas);
+  } else {
+    Serial.print("  == FALLASTE (vidas infinitas)");
+  }
+  Serial.print(" | acumulado ");
+  Serial.print(tiempoAcumMs / 1000);
+  Serial.println(" s ==");
+
+  if (modoVidas && vidas <= 0) {
+    Serial.println("  *** SIN VIDAS: FIN DE PARTIDA ***");
+    irAFin = true;
+  }
+
+  mostrarTablero(nivel, vidas, tiempoAcumMs / 1000);
+  subirDespues = false;
+  tPaso = ahora;
+  estado = PAUSA;
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  for (int i = 0; i < 4; i++) {
+    pinMode(LED[i], OUTPUT);
+    digitalWrite(LED[i], LOW);
+    botonIniciar(btn[i], BOTON[i]);
+  }
+
+  botonIniciar(btnInicio, BOTON_INICIO);   // Inicializa GP11
+
+  pinMode(LED_TIEMPO, OUTPUT);
+  digitalWrite(LED_TIEMPO, LOW);
+
+  display.setBrightness(3);
+
+  Serial.println("Comandos: t=limite tiempo  v=vidas  r=reiniciar  e=estado");
+
+  reiniciarPartida();     // Inicia el juego en estado ESPERA
+}
+
+void loop() {
+  unsigned long ahora = millis();
+
+  // --- Leer entradas y comandos de prueba ---
+  leerComandos();
+  for (int i = 0; i < 4; i++) botonLeer(btn[i], ahora);
+  botonLeer(btnInicio, ahora);
+  ecoActualizar(ahora);
+
+  // --- Reinicio por pulsacion sostenida de 2 s: vale en CUALQUIER estado ---
+  if (btnInicio.estable && !resetYaHecho && (ahora - btnInicio.tCambio) >= T_RESET) {
+    resetYaHecho = true;
+    btnInicio.flanco = false;      // Evita que cuente como pulsacion corta
+    Serial.println("\n-- Reinicio por pulsacion sostenida --");
+    reiniciarPartida();
+    return;
+  }
+  if (!btnInicio.estable) resetYaHecho = false;   // Listo para otro reset
+
+  // --- Maquina de estados ---
+  if (estado == ESPERA) {
+    if (botonPresionado(btnInicio)) empezarPartida();
+  }
+
+  else if (estado == PRESENTACION) {
+    unsigned long transcurrido = ahora - tPaso;
+
+    if (ledEncendido && transcurrido >= encendido) {
+      digitalWrite(LED[secuencia[paso]], LOW);
+      ledEncendido = false;
+    }
+    else if (!ledEncendido && transcurrido >= periodo) {
+      paso++;
+      if (paso >= nivel) {          // Se acabo la presentacion: turno del jugador
+        indiceJugador = 0;
+        tInicioIngreso = ahora;      // Arranca el cronometro
+        tPalpito = ahora;
+        palpitoOn = false;
+
+        // Descarta pulsaciones hechas DURANTE la presentacion
+        for (int i = 0; i < 4; i++) botonPresionado(btn[i]);
+        Serial.println("  tu turno...");
+        estado = INGRESO;
+      } else {
+        tPaso = ahora;
+        ledEncendido = true;
+        digitalWrite(LED[secuencia[paso]], HIGH);
+      }
+    }
+  }
+
+  else if (estado == INGRESO) {
+    unsigned long t = ahora - tInicioIngreso;
+
+    if (modoTiempo) {
+      // --- LED 5: palpito que se acelera conforme se agota el tiempo ---
+      float avance = (float)t / (float)tMaximo;
+      if (avance > 1.0) avance = 1.0;
+      int perPalpito = PALPITO_LENTO - (int)((PALPITO_LENTO - PALPITO_RAPIDO) * avance);
+
+      if (ahora - tPalpito >= (unsigned long)(perPalpito / 2)) {
+        tPalpito = ahora;
+        palpitoOn = !palpitoOn;
+        digitalWrite(LED_TIEMPO, palpitoOn);
+      }
+
+      // --- ¿Se vencio el tiempo? ---
+      if (t >= tMaximo) {
+        Serial.println("  TIEMPO AGOTADO");
+        fallo(ahora, true);
+        return;
+      }
+    }
+
+    // --- Pulsaciones del jugador ---
+    for (int i = 0; i < 4; i++) {
+      if (botonPresionado(btn[i])) {
+        ecoIniciar(i, ahora);              // Confirma la entrada reconocida
+
+        Serial.print("  pulsaste ");
+        Serial.print(i + 1);
+
+        if (i == secuencia[indiceJugador]) {
+          indiceJugador++;
+          Serial.print("  ok (");
+          Serial.print(indiceJugador);
+          Serial.print("/");
+          Serial.print(nivel);
+          Serial.println(")");
+
+          if (indiceJugador >= nivel) acierto(ahora);
+        }
+        else {
+          Serial.print("  MAL, era el ");
+          Serial.println(secuencia[indiceJugador] + 1);
+          fallo(ahora, false);
+        }
+        break;      // Solo procesa un boton por vuelta
+      }
+    }
+  }
+
+  else if (estado == PAUSA) {
+    if (ahora - tPaso >= 1500) {
+      if (irAFin) {
+        irAFin = false;
+        estado = FIN;
+        Serial.println("-- Fin de partida. Manten INICIO 2 s para reiniciar. --");
+      } else {
+        if (subirDespues) subirNivel();   // Acierto -> nivel nuevo + elemento nuevo
+        iniciarNivel();                   // Fallo   -> mismo nivel, misma secuencia
+      }
+    }
+  }
+
+  else if (estado == FIN) {
+    // Congela el tablero. Consume pulsaciones cortas para evitar arrancar por error.
+    botonPresionado(btnInicio);
+  }
+}
