@@ -1,0 +1,49 @@
+# Doxyfile - Pulso de memoria, practica 3 (version C sobre Pico SDK)
+# Uso:  doxygen Doxyfile     (genera doc_c/html/index.html)
+#
+# Solo se fijan las opciones que difieren del valor por defecto; el resto lo
+# completa Doxygen. Esta configuracion es la de la practica 2 con los dos
+# ajustes propios de C: OPTIMIZE_OUTPUT_FOR_C y EXTRACT_STATIC.
+
+PROJECT_NAME           = "Pulso de memoria - version C (Pico SDK)"
+PROJECT_BRIEF          = "Practica 3, Laboratorio de Electronica Digital III, UdeA 2026-2"
+OUTPUT_DIRECTORY       = doc_c
+OUTPUT_LANGUAGE        = Spanish
+
+INPUT                  = include src test README.md
+FILE_PATTERNS          = *.c *.h *.md
+RECURSIVE              = YES
+USE_MDFILE_AS_MAINPAGE = README.md
+
+# --- Ajustes propios de un proyecto en C -----------------------------
+# Presenta el codigo como C y no como C++ (sin clases ni espacios de nombres).
+OPTIMIZE_OUTPUT_FOR_C  = YES
+
+# Las funciones y variables 'static' son la mayor parte del programa: sin esto
+# main.c saldria practicamente vacio en la documentacion.
+EXTRACT_STATIC         = YES
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+
+# Avisa de lo que quede sin documentar: sirve como control de calidad.
+WARN_IF_UNDOCUMENTED   = YES
+WARN_NO_PARAMDOC       = YES
+
+# --- Salida ----------------------------------------------------------
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+GENERATE_TREEVIEW      = YES
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+ALPHABETICAL_INDEX     = YES
+
+# Diagramas de llamadas e inclusion (requieren Graphviz en el PATH).
+HAVE_DOT               = YES
+CALL_GRAPH             = YES
+CALLER_GRAPH           = NO
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = NO
+DOT_IMAGE_FORMAT       = svg
+
+# No documentar el arbol de compilacion ni el SDK.
+EXCLUDE                = build

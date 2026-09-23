@@ -1,0 +1,4 @@
+build/
+doc_c/
+.cache/
+compile_commands.json
