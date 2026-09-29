@@ -4,6 +4,7 @@
  */
 #include "luces.h"
 #include "hardware/gpio.h"
+#include "sonido.h"
 
 void luces_init(luces_t *l, const uint8_t pines_led[4], uint8_t pin_tiempo)
 {
@@ -31,6 +32,7 @@ void luces_encender(luces_t *l, int i)
         return;
     }
     gpio_set_mask(l->bit[i]);
+    sonido_reproducir_nota(i);
 }
 
 void luces_apagar(luces_t *l, int i)
@@ -39,12 +41,14 @@ void luces_apagar(luces_t *l, int i)
         return;
     }
     gpio_clr_mask(l->bit[i]);
+    sonido_apagar();
 }
 
 void luces_apagar_todo(luces_t *l)
 {
     gpio_clr_mask(l->todos);             /* una escritura para los cinco */
     l->eco_activo = -1;
+    sonido_apagar();
 }
 
 void luces_tiempo(luces_t *l, bool encendido)
@@ -84,6 +88,7 @@ void luces_eco(luces_t *l, int i, uint32_t ahora)
     l->eco_activo = i;
     l->t_eco = ahora;
     gpio_set_mask(l->bit[i]);
+    sonido_reproducir_nota(i);
 }
 
 void luces_actualizar(luces_t *l, uint32_t ahora)
@@ -91,6 +96,7 @@ void luces_actualizar(luces_t *l, uint32_t ahora)
     if (l->eco_activo >= 0 && (ahora - l->t_eco) >= LUZ_T_ECO) {
         gpio_clr_mask(l->bit[l->eco_activo]);
         l->eco_activo = -1;
+        sonido_apagar();
     }
 }
 

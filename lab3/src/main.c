@@ -34,6 +34,7 @@
 #include "tablero.h"
 #include "luces.h"
 #include "entradas.h"
+#include "sonido.h"
 
 /* =====================================================================
  * 1. DISPOSITIVOS
@@ -529,6 +530,7 @@ int main(void)
 
     tablero_init(&tablero, PIN_SEGMENTO, PIN_COMUN);
     luces_init(&luces, PIN_LED, PIN_LED_TIEMPO);
+    sonido_init();
     for (int i = 0; i < 4; i++) {
         boton_init(&btn[i], PIN_BOTON[i]);
     }

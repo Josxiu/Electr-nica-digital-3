@@ -45,6 +45,9 @@ static const uint8_t PIN_LED[4] = { 6, 7, 8, 9 };
 /** GPIO de los pulsadores 1 a 4 del jugador. */
 static const uint8_t PIN_BOTON[4] = { 11, 12, 13, 14 };
 
+/** GPIO del buzzer (PWM) */
+#define PIN_BUZZER 15u
+
 /** GPIO del pulsador de inicio / reinicio. */
 #define PIN_BOTON_INICIO 10u
 

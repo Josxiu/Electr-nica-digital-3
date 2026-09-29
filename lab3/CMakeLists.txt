@@ -33,6 +33,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Placa de destino. Cambiar a pico_w / pico2 si se usa otra.
 set(PICO_BOARD pico CACHE STRING "Board type")
 
+# El SDK busca Doxygen solo para sus propios docs. Con una ruta que tiene tilde
+# doxygen.exe falla al generar CMakeDoxyfile.tpl y aborta la configuracion.
+# Este proyecto genera su documentacion con su propio Doxyfile, asi que se
+# desactiva la busqueda y se declara no encontrado.
+set(CMAKE_DISABLE_FIND_PACKAGE_Doxygen TRUE)
+set(DOXYGEN_FOUND FALSE)
+
 # Localiza el SDK. Debe ir ANTES de project().
 include(pico_sdk_import.cmake)
 
@@ -47,9 +54,10 @@ add_library(dispositivos STATIC
     src/tablero.c
     src/luces.c
     src/entradas.c
+    src/sonido.c
 )
 target_include_directories(dispositivos PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
-target_link_libraries(dispositivos PUBLIC pico_stdlib)
+target_link_libraries(dispositivos PUBLIC pico_stdlib hardware_pwm)
 
 # ---------------------------------------------------------------------
 # Ejecutable principal: el juego
