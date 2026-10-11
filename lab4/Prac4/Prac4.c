@@ -1,166 +1,229 @@
 /**
  * @file Prac4.c
- * @brief Generador de tonos senoidales en tiempo real (reproducción por presión) 
- *        con SysTick, DAC de 8 bits y escala de octavas acumulativa.
+ * @brief Octavia: aplicación principal.
+ *
+ * Reparto del trabajo:
+ *   - Interrupción del SysTick (FS_HZ = 40 kHz): calcula y saca cada muestra
+ *     (sintetizador_muestra()). Así la afinación no depende de lo que tarde
+ *     el bucle principal.
+ *   - Bucle principal: antirrebote de los botones, elección de la nota y
+ *     mensajes por USB.
+ *
+ * La aplicación no toca registros: el SysTick se maneja solo con el driver
+ * systick.h y el DAC con dac.h.
  */
 
 #include <stdio.h>
 #include <math.h>
 #include "pico/stdlib.h"
-#include "hardware/gpio.h"
 #include "hardware/clocks.h"
-#include "hardware/structs/systick.h"
 
 #include "pines.h"
 #include "entradas.h"
+#include "systick.h"
+#include "dac.h"
+#include "sintetizador.h"
 
-// --- CONFIGURACIÓN DEL DAC EXTERNO (8 BITS PARALELO) ---
-#define DAC_MASK          (0xFFu << DAC_BASE_PIN) // Máscara para GP2..GP9
-#define LUT_SIZE          256                     // Muestras por ciclo de la senoidal
-#define FREQ_MUESTREO     100000.0f               // 100 kHz (Tasa de actualización SysTick)
+/** Instancias de los 9 botones (7 notas + 2 de octava). */
+static boton_t botones[NUM_BOTONES];
 
-// Tabla Look-Up Table (LUT) para la onda senoidal (0 a 255)
-static uint8_t lut_seno[LUT_SIZE];
+#define NUM_NOTAS      7
+#define OCTAVA_MIN     3
+#define OCTAVA_MAX     5
+#define OCTAVA_INICIAL 4
 
-// Variables para la Síntesis Digital Directa (DDS)
-static volatile uint32_t acumulador_fase = 0;
-static volatile uint32_t paso_fase = 0;
+/** Semitonos de cada nota respecto a La4 (f = 440 * 2^(n/12)). */
+static const int8_t N_DESDE_LA4[NUM_NOTAS] = { -9, -7, -5, -4, -2, 0, 2 };
+static const char *NOMBRE_NOTA[NUM_NOTAS] = { "Do", "Re", "Mi", "Fa", "Sol", "La", "Si" };
 
-// Instancias para los 5 botones
-static boton_t botones[5];
+/** Paso de fase de cada nota en la octava 4 (se calcula al arrancar). */
+static uint32_t paso_oct4[NUM_NOTAS];
 
-// Frecuencias base de la 4.a octava (f = 440 * 2^(n/12))
-#define FREQ_DO4 261.63f  // n = -9
-#define FREQ_RE4 293.66f  // n = -7
-#define FREQ_MI4 329.63f  // n = -5
+static int  octava_vigente = OCTAVA_INICIAL; /**< octava que usarán las próximas notas */
+static bool nota_activa = false;             /**< hay una nota sonando               */
+static int  nota_sonando = 0;                /**< índice de esa nota (0 = Do)        */
 
-// Estado actual del sonido
-static float factor_octava = 1.0f;       // Multiplicador acumulativo de octava
-static float freq_salida_anterior = -1.0f; // Control para imprimir solo en cambios
-
-/**
- * @brief Llena la tabla de búsqueda (LUT) con una onda senoidal calibrada a 8 bits.
- */
-static void init_lut_seno(void) {
-    for (int i = 0; i < LUT_SIZE; i++) {
-        float angulo = (2.0f * M_PI * i) / LUT_SIZE;
-        lut_seno[i] = (uint8_t)((sinf(angulo) + 1.0f) * 127.5f);
+/** @brief Calcula el paso de fase de las 7 notas en la octava 4. */
+static void notas_init(void)
+{
+    for (int i = 0; i < NUM_NOTAS; i++) {
+        float f = 440.0f * powf(2.0f, N_DESDE_LA4[i] / 12.0f);
+        paso_oct4[i] = sintetizador_paso_de(f);
     }
 }
 
 /**
- * @brief Actualiza el incremento de fase del DDS según la frecuencia en Hz.
+ * @brief Paso de fase de una nota en cualquier octava.
+ * Subir una octava duplica el paso (<< 1); bajarla lo divide entre 2 (>> 1).
  */
-static void actualizar_paso_fase(float freq_hz) {
-    if (freq_hz <= 0.0f) {
-        paso_fase = 0; // Silencio
-    } else {
-        paso_fase = (uint32_t)((freq_hz * 4294967296.0f) / FREQ_MUESTREO);
+static uint32_t paso_nota(int nota, int octava)
+{
+    int d = octava - 4;
+    return (d >= 0) ? (paso_oct4[nota] << d) : (paso_oct4[nota] >> -d);
+}
+
+/** @brief Frecuencia teórica de una nota, solo para mostrarla por USB. */
+static float freq_nota(int nota, int octava)
+{
+    return 440.0f * powf(2.0f, N_DESDE_LA4[nota] / 12.0f + (octava - 4));
+}
+
+/** @brief Configura los 3 LEDs de octava como salidas. */
+static void leds_init(void)
+{
+    for (int i = 0; i < 3; i++) {
+        gpio_init(PIN_LED_OCTAVA[i]);
+        gpio_set_dir(PIN_LED_OCTAVA[i], GPIO_OUT);
+    }
+}
+
+/** @brief Enciende solo el LED de la octava indicada. */
+static void leds_mostrar_octava(int octava)
+{
+    for (int i = 0; i < 3; i++) {
+        gpio_put(PIN_LED_OCTAVA[i], (OCTAVA_MIN + i) == octava);
     }
 }
 
 /**
- * @brief Driver de SysTick mediante acceso DIRECTO a registros usando desplazamientos de bit estándar ARM.
+ * @brief Sube (+1) o baja (-1) la octava vigente, sin salirse del rango.
+ * @param delta +1 para subir, -1 para bajar.
+ *
+ * En el límite (OCTAVA_MIN u OCTAVA_MAX) no hace nada. Solo afecta a las
+ * notas que se pulsen después; las que ya suenan conservan su octava.
  */
-static void systick_driver_init(uint32_t ticks_periodo) {
-    systick_hw->csr = 0;                                       // Deshabilitar SysTick
-    systick_hw->rvr = ticks_periodo - 1;                       // Cargar período N-1
-    systick_hw->cvr = 0;                                       // Limpiar contador actual
-    systick_hw->csr = (1u << 2) | (1u << 0);                  // Bit 2 (CLKSOURCE) | Bit 0 (ENABLE)
+static void cambiar_octava(int delta)
+{
+    int nueva = octava_vigente + delta;
+    if (nueva < OCTAVA_MIN || nueva > OCTAVA_MAX) {
+        return;
+    }
+    octava_vigente = nueva;
+    leds_mostrar_octava(octava_vigente);
+    printf("[OCTAVA] %d\n", octava_vigente);
 }
 
 /**
- * @brief Configura los 8 GPIO del bus paralelo para el DAC.
+ * @brief Programa el SysTick a FS_HZ y conecta el sintetizador a su interrupción.
+ * @return true si el periodo cupo en el SysTick.
  */
-static void dac_init(void) {
-    for (int i = 0; i < 8; i++) {
-        uint pin = DAC_BASE_PIN + i;
-        gpio_init(pin);
-        gpio_set_dir(pin, GPIO_OUT);
-    }
-}
-
-int main(void) {
-    stdio_init_all();
-    init_lut_seno();
-    dac_init();
-
-    // 1. Configurar SysTick para temporizar a FREQ_MUESTREO (100 kHz)
+static bool audio_iniciar(void)
+{
     uint32_t clk_sys_hz = clock_get_hz(clk_sys);
-    uint32_t ticks_systick = clk_sys_hz / (uint32_t)FREQ_MUESTREO;
-    systick_driver_init(ticks_systick);
+    uint32_t ticks = clk_sys_hz / FS_HZ;   /* 125 MHz / 40 kHz = 3125 */
 
-    // 2. Inicializar los 5 botones con la estructura de entradas.c
-    for (int i = 0; i < 5; i++) {
+    if (!systick_configurar(ticks)) {
+        return false;
+    }
+    systick_registrar_callback(sintetizador_muestra);
+    systick_fijar_prioridad(0);            /* la más alta: no la retrasan USB ni GPIO */
+    systick_iniciar(true);
+
+    printf("SysTick: clk_sys = %lu Hz, periodo = %lu ciclos, Fs = %.3f Hz\n",
+           (unsigned long)clk_sys_hz, (unsigned long)systick_periodo(),
+           (double)clk_sys_hz / systick_periodo());
+    return true;
+}
+
+/**
+ * @brief Atiende comandos de una letra por USB (sin bloquear).
+ *
+ *   - 'i': activa / desactiva la interpolación (comparación de la guía).
+ *   - 'f': cuenta las interrupciones del SysTick durante 1 s, medidas con el
+ *          TIMER del RP2040, y muestra la frecuencia de muestreo real.
+ */
+static void atender_comandos(void)
+{
+    int c = getchar_timeout_us(0);
+    if (c == 'i') {
+        sintetizador_interpolacion(!sintetizador_interpolando());
+        printf("[CFG] Interpolacion %s\n", sintetizador_interpolando() ? "ACTIVA" : "apagada");
+    } else if (c == 'f') {
+        uint32_t n0 = systick_conteo_interrupciones();
+        uint64_t t0 = time_us_64();
+        while (time_us_64() - t0 < 1000000u) {
+            tight_loop_contents();
+        }
+        uint32_t n1 = systick_conteo_interrupciones();
+        printf("[PRUEBA] Interrupciones en 1 s: %lu (esperado %u)\n",
+               (unsigned long)(n1 - n0), FS_HZ);
+    }
+}
+
+int main(void)
+{
+    stdio_init_all();
+    dac_init();
+    sintetizador_init();
+
+    for (int i = 0; i < NUM_BOTONES; i++) {
         boton_init(&botones[i], PIN_BOTON[i]);
     }
+    notas_init();
+    leds_init();
+    leds_mostrar_octava(octava_vigente);
 
+    sleep_ms(1500);                        /* tiempo para abrir el monitor serie */
     printf("\n===================================================\n");
-    printf("   Sintetizador de Notas con SysTick (Modo Piano)\n");
+    printf("   Octavia - Sintetizador con SysTick (Fs = %u Hz)\n", FS_HZ);
+    printf("   Comandos: 'i' interpolacion, 'f' medir Fs\n");
     printf("===================================================\n\n");
+
+    /* Al encender: si un botón ya está presionado, no debe sonar.
+       Se leen los botones un rato y se descartan los flancos. */
+    uint32_t t_inicio = to_ms_since_boot(get_absolute_time());
+    while (to_ms_since_boot(get_absolute_time()) - t_inicio < 2 * ENT_T_ANTIRREBOTE) {
+        uint32_t e = entradas_muestrear();
+        uint32_t t = to_ms_since_boot(get_absolute_time());
+        for (int i = 0; i < NUM_BOTONES; i++) {
+            boton_leer(&botones[i], e, t);
+        }
+    }
+    for (int i = 0; i < NUM_BOTONES; i++) {
+        boton_descartar(&botones[i]);
+    }
+
+    if (!audio_iniciar()) {
+        printf("[ERROR] El periodo no cabe en el SysTick\n");
+        while (true) {
+            tight_loop_contents();
+        }
+    }
 
     while (true) {
         // ------------------------------------------------------------------
-        // 1. TEMPORIZACIÓN DE MUESTRAS POR POLLING AL REGISTRO SYSTICK (CSR)
-        // ------------------------------------------------------------------
-        if (systick_hw->csr & (1u << 16)) { // Bit 16 = COUNTFLAG
-            if (paso_fase > 0) {
-                acumulador_fase += paso_fase;
-                uint8_t indice = (acumulador_fase >> 24) & (LUT_SIZE - 1);
-                
-                // Salida simultánea a los 8 bits del DAC en 1 ciclo de reloj
-                uint32_t valor_dac = (uint32_t)lut_seno[indice] << DAC_BASE_PIN;
-                gpio_put_masked(DAC_MASK, valor_dac);
-            } else {
-                // Silencio: Punto medio del DAC (1.65 V)
-                gpio_put_masked(DAC_MASK, (uint32_t)128 << DAC_BASE_PIN);
-            }
-        }
-
-        // ------------------------------------------------------------------
-        // 2. LECTURA Y PROCESAMIENTO DE LOS 5 BOTONES (ANTIRREBOTE)
+        // 1. LECTURA Y PROCESAMIENTO DE LOS 9 BOTONES (ANTIRREBOTE)
         // ------------------------------------------------------------------
         uint32_t ahora = to_ms_since_boot(get_absolute_time());
         uint32_t entradas = entradas_muestrear();
 
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < NUM_BOTONES; i++) {
             boton_leer(&botones[i], entradas, ahora);
         }
 
-        // --- Aumento / Disminución acumulativa de la escala (Botones 4 y 5) ---
-        if (boton_presionado(&botones[3])) { // Botón 4: Dividir frecuencia acumulativamente entre 2
-            factor_octava *= 0.5f;
-            printf("[OCTAVA] Frecuencia reducida a la mitad (Factor acumulado: %.4fx)\n", factor_octava);
-        }
-        if (boton_presionado(&botones[4])) { // Botón 5: Duplicar frecuencia acumulativamente por 2
-            factor_octava *= 2.0f;
-            printf("[OCTAVA] Frecuencia duplicada (Factor acumulado: %.4fx)\n", factor_octava);
-        }
+        // --- Octava (antes que las notas: si llegan juntas, la nota ya usa la nueva) ---
+        if (boton_presionado(&botones[BTN_OCT_BAJA])) cambiar_octava(-1);
+        if (boton_presionado(&botones[BTN_OCT_SUBE])) cambiar_octava(+1);
 
-        // --- Lectura en tiempo real del estado presionado (Botones 1, 2 y 3) ---
-        float freq_nota_base = 0.0f; // Por defecto: Silencio si no hay ningún botón presionado
-
-        if (boton_esta_presionado(&botones[0])) {        // Botón 1 presionado -> Do4
-            freq_nota_base = FREQ_DO4;
-        } else if (boton_esta_presionado(&botones[1])) { // Botón 2 presionado -> Re4
-            freq_nota_base = FREQ_RE4;
-        } else if (boton_esta_presionado(&botones[2])) { // Botón 3 presionado -> Mi4
-            freq_nota_base = FREQ_MI4;
-        }
-
-        // Calcular la frecuencia final
-        float freq_salida_actual = freq_nota_base * factor_octava;
-        actualizar_paso_fase(freq_salida_actual);
-
-        // Imprimir por el puerto USB solo cuando el estado de la salida cambie
-        if (freq_salida_actual != freq_salida_anterior) {
-            if (freq_salida_actual > 0.0f) {
-                printf("[DAC OUTPUT] Reproduciendo: %.2f Hz\n", freq_salida_actual);
-            } else {
-                printf("[DAC OUTPUT] Silencio\n");
+        // --- Notas: el paso se calcula SOLO al pulsar, con la octava de ese momento ---
+        for (int i = 0; i < NUM_NOTAS; i++) {
+            if (boton_presionado(&botones[i])) {
+                nota_sonando = i;
+                nota_activa = true;
+                sintetizador_tocar(paso_nota(i, octava_vigente));
+                printf("[NOTA] %s%d = %.2f Hz\n", NOMBRE_NOTA[i], octava_vigente,
+                       freq_nota(i, octava_vigente));
             }
-            freq_salida_anterior = freq_salida_actual;
         }
+
+        // --- Al soltar la nota que suena: silencio ---
+        if (nota_activa && !boton_esta_presionado(&botones[nota_sonando])) {
+            nota_activa = false;
+            sintetizador_soltar();
+            printf("[NOTA] Silencio\n");
+        }
+
+        atender_comandos();
     }
 
     return 0;

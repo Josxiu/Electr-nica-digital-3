@@ -35,9 +35,14 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(Prac4 
+add_executable(Prac4
         Prac4.c
-        src/entradas.c )
+        src/entradas.c
+        src/systick.c
+        src/dac.c
+        src/sintetizador.c )
+
+target_compile_options(Prac4 PRIVATE -Wall -Wextra)
 
 pico_set_program_name(Prac4 "Prac4")
 pico_set_program_version(Prac4 "0.1")

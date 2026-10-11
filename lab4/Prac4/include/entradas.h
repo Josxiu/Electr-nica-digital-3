@@ -7,18 +7,16 @@
  * estado si la lectura se mantuvo estable durante ENT_T_ANTIRREBOTE.
  *
  * Distingue dos cosas que no son lo mismo:
- *   - el INSTANTE de la pulsacion (el "flanco"), que es lo que cuenta como
- *     entrada del jugador y se consume una sola vez;
- *   - el ESTADO sostenido, que sirve para detectar la pulsacion larga de
- *     reinicio.
+ *   - el INSTANTE de la pulsacion (el "flanco"), que se consume una sola vez;
+ *     en Octavia sirve para iniciar una nota o cambiar de octava;
+ *   - el ESTADO sostenido, que indica si la nota debe seguir sonando.
  *
  * Se asume que el pulsador va del GPIO a GND y se usa el pull-up interno:
  * sin pulsar = 1, pulsado = 0.
  *
- * Diferencia con la version Arduino: alli cada boton hacia su propio
- * digitalRead. Aqui el bucle principal toma UNA instantanea de los 30 GPIO
- * con gpio_get_all() y se la pasa a los cinco botones, de modo que todos
- * quedan muestreados en el mismo instante.
+ * Modulo reutilizado de la Practica 3. El bucle principal toma UNA
+ * instantanea de los 30 GPIO con gpio_get_all() y se la pasa a todos los
+ * botones, de modo que quedan muestreados en el mismo instante.
  */
 #ifndef ENTRADAS_H
 #define ENTRADAS_H
@@ -61,7 +59,7 @@ uint32_t entradas_muestrear(void);
  * @param entradas palabra devuelta por entradas_muestrear().
  * @param ahora    marca de tiempo comun de esta vuelta, en ms.
  *
- * Hay que llamarlo en CADA vuelta, en todos los estados del juego.
+ * Hay que llamarlo en CADA vuelta del bucle principal.
  */
 void boton_leer(boton_t *b, uint32_t entradas, uint32_t ahora);
 
@@ -86,7 +84,7 @@ bool boton_esta_presionado(const boton_t *b);
  * @brief Indica si lleva al menos 'ms' milisegundos presionado sin soltarse.
  * @param b     boton.
  * @param ahora marca de tiempo de esta vuelta, en ms.
- * @param ms    duracion exigida, por ejemplo 2000 para el reinicio.
+ * @param ms    duracion exigida, en ms.
  * @return true si se cumple la condicion.
  */
 bool boton_sostenido(const boton_t *b, uint32_t ahora, uint32_t ms);
