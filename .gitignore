@@ -1,0 +1,11 @@
+# Carpetas de compilación (se regeneran en cada PC; nunca subir)
+build/
+
+# Documentación generada por Doxygen
+doc_c/
+html/
+latex/
+
+# Archivos de IntelliSense / clangd
+.cache/
+compile_commands.json
