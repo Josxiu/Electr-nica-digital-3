@@ -40,8 +40,15 @@ static const char *NOMBRE_NOTA[NUM_NOTAS] = { "Do", "Re", "Mi", "Fa", "Sol", "La
 static uint32_t paso_oct4[NUM_NOTAS];
 
 static int  octava_vigente = OCTAVA_INICIAL; /**< octava que usarán las próximas notas */
-static bool nota_activa = false;             /**< hay una nota sonando               */
-static int  nota_sonando = 0;                /**< índice de esa nota (0 = Do)        */
+/** Valor de voz_de_nota[] cuando esa nota no está sonando. */
+#define SIN_VOZ (-1)
+
+/**
+ * Voz del sintetizador que tiene cada nota (índice 0 = Do ... 6 = Si).
+ * Sirve para que, al soltar un botón, se suelte justo la voz de esa nota.
+ */
+static int voz_de_nota[NUM_NOTAS] = { SIN_VOZ, SIN_VOZ, SIN_VOZ, SIN_VOZ,
+                                      SIN_VOZ, SIN_VOZ, SIN_VOZ };
 
 /** @brief Calcula el paso de fase de las 7 notas en la octava 4. */
 static void notas_init(void)
@@ -101,6 +108,41 @@ static void cambiar_octava(int delta)
     octava_vigente = nueva;
     leds_mostrar_octava(octava_vigente);
     printf("[OCTAVA] %d\n", octava_vigente);
+}
+
+/**
+ * @brief Hace sonar una nota recién pulsada con la octava vigente.
+ * @param nota índice de la nota (0 = Do ... 6 = Si).
+ *
+ * El paso se calcula aquí, una sola vez: por eso la nota conserva su octava
+ * aunque después se cambie. Si las voces estaban llenas, el sintetizador
+ * reutiliza la más antigua y la nota que la tenía deja de sonar.
+ */
+static void empezar_nota(int nota)
+{
+    int voz = sintetizador_tocar(paso_nota(nota, octava_vigente));
+
+    for (int otra = 0; otra < NUM_NOTAS; otra++) {
+        if (voz_de_nota[otra] == voz) {          /* esa voz era de otra nota */
+            voz_de_nota[otra] = SIN_VOZ;
+            printf("[NOTA] %s reemplazada (voces llenas)\n", NOMBRE_NOTA[otra]);
+        }
+    }
+    voz_de_nota[nota] = voz;
+
+    printf("[NOTA] %s%d = %.2f Hz (voz %d)\n", NOMBRE_NOTA[nota], octava_vigente,
+           freq_nota(nota, octava_vigente), voz);
+}
+
+/**
+ * @brief Suelta la voz de una nota cuyo botón se liberó.
+ * @param nota índice de la nota (0 = Do ... 6 = Si).
+ */
+static void terminar_nota(int nota)
+{
+    sintetizador_soltar(voz_de_nota[nota]);
+    voz_de_nota[nota] = SIN_VOZ;
+    printf("[NOTA] %s suelta\n", NOMBRE_NOTA[nota]);
 }
 
 /**
@@ -166,6 +208,7 @@ int main(void)
     sleep_ms(1500);                        /* tiempo para abrir el monitor serie */
     printf("\n===================================================\n");
     printf("   Octavia - Sintetizador con SysTick (Fs = %u Hz)\n", FS_HZ);
+    printf("   Voces simultaneas: %d\n", SINT_VOCES);
     printf("   Comandos: 'i' interpolacion, 'f' medir Fs\n");
     printf("===================================================\n\n");
 
@@ -205,22 +248,14 @@ int main(void)
         if (boton_presionado(&botones[BTN_OCT_BAJA])) cambiar_octava(-1);
         if (boton_presionado(&botones[BTN_OCT_SUBE])) cambiar_octava(+1);
 
-        // --- Notas: el paso se calcula SOLO al pulsar, con la octava de ese momento ---
+        // --- Notas: cada una se atiende por separado (pueden sonar varias) ---
         for (int i = 0; i < NUM_NOTAS; i++) {
             if (boton_presionado(&botones[i])) {
-                nota_sonando = i;
-                nota_activa = true;
-                sintetizador_tocar(paso_nota(i, octava_vigente));
-                printf("[NOTA] %s%d = %.2f Hz\n", NOMBRE_NOTA[i], octava_vigente,
-                       freq_nota(i, octava_vigente));
+                empezar_nota(i);
             }
-        }
-
-        // --- Al soltar la nota que suena: silencio ---
-        if (nota_activa && !boton_esta_presionado(&botones[nota_sonando])) {
-            nota_activa = false;
-            sintetizador_soltar();
-            printf("[NOTA] Silencio\n");
+            if (voz_de_nota[i] != SIN_VOZ && !boton_esta_presionado(&botones[i])) {
+                terminar_nota(i);
+            }
         }
 
         atender_comandos();

@@ -11,6 +11,13 @@
  * Para evitar chasquidos, la amplitud sube y baja en rampa (SINT_RAMPA_MUESTRAS
  * muestras) al iniciar y al soltar una nota.
  *
+ * Polifonía: hay SINT_VOCES voces independientes (cada una con su fase, su
+ * paso y su rampa). En cada muestra se suman y la suma se divide entre
+ * SINT_VOCES, de modo que nunca se desborda el rango del DAC aunque suenen
+ * todas a la vez. Si se pulsa una nota y no hay voz libre, se reutiliza la
+ * voz que lleva más tiempo asignada. Con SINT_VOCES = 1 el instrumento es
+ * monofónico ("la última nota pulsada suena").
+ *
  * Reparto de trabajo: sintetizador_muestra() se llama desde la interrupción
  * del SysTick (una vez por muestra); las demás funciones, desde el bucle
  * principal. Comparten solo variables de 32 bits o menos, que el M0+ lee y
@@ -24,6 +31,9 @@
 
 /** Frecuencia de muestreo, en Hz. 125 MHz / 40 kHz = 3125 ciclos exactos. */
 #define FS_HZ 40000u
+
+/** Voces simultáneas. Con 4, cada voz ocupa como máximo 1/4 de la escala. */
+#define SINT_VOCES 4
 
 /** Muestras que tarda la rampa de amplitud de 0 a máximo (256 = 6,4 ms). */
 #define SINT_RAMPA_MUESTRAS 256u
@@ -41,15 +51,21 @@ void sintetizador_init(void);
 uint32_t sintetizador_paso_de(float freq_hz);
 
 /**
- * @brief Empieza (o cambia) la nota que suena.
+ * @brief Asigna una voz a una nota nueva y la hace sonar.
  * @param paso paso de fase de la nota (ver sintetizador_paso_de()).
+ * @return índice de la voz usada (0 a SINT_VOCES - 1).
  *
- * La fase continúa desde donde iba, así que no hay salto en la forma de onda.
+ * Busca una voz libre (sin nota y con la rampa de salida terminada). Si no
+ * hay, reutiliza la asignada hace más tiempo: esa nota cambia de altura sin
+ * salto de fase. Quien llama debe olvidar la voz que tenía la nota anterior.
  */
-void sintetizador_tocar(uint32_t paso);
+int sintetizador_tocar(uint32_t paso);
 
-/** @brief Suelta la nota: la amplitud baja en rampa hasta el silencio. */
-void sintetizador_soltar(void);
+/**
+ * @brief Suelta la nota de una voz: su amplitud baja en rampa hasta 0.
+ * @param voz índice devuelto por sintetizador_tocar(). Fuera de rango: no hace nada.
+ */
+void sintetizador_soltar(int voz);
 
 /**
  * @brief Activa o desactiva la interpolación lineal entre muestras de la tabla.
