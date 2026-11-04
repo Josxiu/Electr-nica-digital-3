@@ -32,8 +32,12 @@
 /** Frecuencia de muestreo, en Hz. 125 MHz / 40 kHz = 3125 ciclos exactos. */
 #define FS_HZ 40000u
 
-/** Voces simultáneas. Con 4, cada voz ocupa como máximo 1/4 de la escala. */
-#define SINT_VOCES 4
+/**
+ * Voces simultáneas. Con 2, cada voz ocupa como máximo la mitad de la escala.
+ * Se probó con 4, pero cada nota quedaba en 1/4 de la escala (unos 6 bits) y
+ * el ruido de cuantización se escuchaba. Para cambiarla, editar y recompilar.
+ */
+#define SINT_VOCES 2
 
 /** Muestras que tarda la rampa de amplitud de 0 a máximo (256 = 6,4 ms). */
 #define SINT_RAMPA_MUESTRAS 256u

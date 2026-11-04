@@ -1,0 +1,14 @@
+# Configuración mínima de Doxygen (las demás opciones quedan por defecto).
+# Generar: doxygen Doxyfile   ->   doc_c/html/index.html
+PROJECT_NAME           = "Práctica 5 - Medición de frecuencia y ciclo de trabajo"
+OUTPUT_DIRECTORY       = doc_c
+OUTPUT_LANGUAGE        = Spanish
+INPUT                  = README.md include src apps test
+FILE_PATTERNS          = *.c *.h
+RECURSIVE              = YES
+USE_MDFILE_AS_MAINPAGE = README.md
+EXTRACT_STATIC         = YES
+EXTRACT_ALL            = YES
+GENERATE_LATEX         = NO
+EXCLUDE                = build
+INPUT_ENCODING         = UTF-8
