@@ -9,3 +9,6 @@ latex/
 # Archivos de IntelliSense / clangd
 .cache/
 compile_commands.json
+
+# Claves del Wi-Fi de la ESP32 (cada quien tiene su copia local)
+secrets.h
