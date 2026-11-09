@@ -21,8 +21,8 @@
 # Las teclas cuentan cuando la ventana activa es la consola o la gráfica.
 # Si este programa se cierra, se suelta el cable o se cae el Wi-Fi, la Pico para sola en 0,5 s.
 #
-# La Pico avisa si las ruedas giran pero el carro no se mueve (en el aire, atascado),
-# si patina al girar o si una rueda se bloquea; los avisos se marcan en la gráfica.
+# La Pico avisa si patina al girar (las ruedas dicen que gira y el giroscopio no ve ese
+# giro; mientras tanto no suma avance) o si una rueda se bloquea; se marcan en la gráfica.
 #
 # Cada recorrido se guarda en datos/recorrido_AAAAMMDD_HHMMSS.csv (y .png al salir).
 #
@@ -47,15 +47,15 @@ VENTANA_S = 30            # segundos que se ven en las gráficas de tiempo
 
 COLUMNAS = ["t_ms", "x_mm", "y_mm", "rumbo_grados", "gz_grados_s", "ax_g", "ay_g",
             "rpm_a", "rpm_b", "pwm_a", "pwm_b", "vel",
-            "v_ruedas_mm_s", "v_imu_mm_s", "giro_ruedas_grados_s", "estado"]
+            "v_ruedas_mm_s", "giro_ruedas_grados_s", "estado"]
 
-COLUMNAS_PASOS = ["t_ms", "dt_s", "ds_a_mm", "ds_b_mm", "dth_giro_rad", "dv_acel_mm_s",
+COLUMNAS_PASOS = ["t_ms", "dt_s", "ds_a_mm", "ds_b_mm", "dth_giro_rad",
                   "meta_a", "meta_b", "rpm_a", "rpm_b", "pwm_a", "pwm_b",
-                  "gx_grados_s", "gy_grados_s", "ay_g", "az_g", "estado"]
+                  "gx_grados_s", "gy_grados_s", "ax_g", "ay_g", "az_g", "estado"]
 
 # Bits del estado que manda la Pico (ver Detector en carro_teclado.py)
-AVISOS = ((1, "SIN AVANCE (en el aire o atascado)"), (2, "PATINA AL GIRAR"),
-          (4, "BLOQUEO RUEDA A"), (8, "BLOQUEO RUEDA B"))
+AVISOS = ((2, "PATINA AL GIRAR"), (4, "BLOQUEO RUEDA A"), (8, "BLOQUEO RUEDA B"))
+PATINA, BLOQUEO = 2, 4 | 8
 
 
 def texto_avisos(estado):
@@ -281,14 +281,14 @@ class Grafica:
         self.l_flecha, = self.ax_t.plot([], [], '-', color='tab:red', lw=3)
         self.p_carro, = self.ax_t.plot([], [], 'o', color='tab:red')
         self.p_patina, = self.ax_t.plot([], [], 'x', color='tab:orange', ms=7,
-                                        label='patina / sin avance')
+                                        label='patina al girar')
         self.p_bloqueo, = self.ax_t.plot([], [], 's', color='k', ms=7, label='rueda bloqueada')
         self.ax_t.legend(loc='upper right', fontsize=8)
         self.ax_t.plot([0], [0], 'k+', ms=12)
 
         self.ax_r.set_ylabel("rumbo (°)")
         self.ax_g.set_ylabel("giro (°/s)")
-        self.ax_a.set_ylabel("avance (mm/s)")
+        self.ax_a.set_ylabel("avance ruedas (mm/s)")
         self.ax_v.set_ylabel("ruedas (RPM)")
         self.ax_v.set_xlabel("tiempo (s)")
         for a in (self.ax_r, self.ax_g, self.ax_a, self.ax_v):
@@ -297,9 +297,7 @@ class Grafica:
         self.l_gz, = self.ax_g.plot([], [], color='tab:orange', label='giroscopio')
         self.l_wenc, = self.ax_g.plot([], [], color='tab:gray', label='ruedas')
         self.ax_g.legend(loc='upper left', fontsize=8)
-        self.l_venc, = self.ax_a.plot([], [], color='tab:gray', label='ruedas')
-        self.l_vimu, = self.ax_a.plot([], [], color='tab:green', label='acelerómetro')
-        self.ax_a.legend(loc='upper left', fontsize=8)
+        self.l_venc, = self.ax_a.plot([], [], color='tab:gray')
         self.l_a, = self.ax_v.plot([], [], label='A (adelante +)')
         self.l_b, = self.ax_v.plot([], [], label='B (adelante +)')
         self.ax_v.legend(loc='upper left', fontsize=8)
@@ -309,7 +307,7 @@ class Grafica:
 
     def reiniciar(self):
         (self.t, self.px, self.py, self.rumbo, self.gz, self.ra, self.rb,
-         self.wenc, self.venc, self.vimu) = ([] for _ in range(10))
+         self.wenc, self.venc) = ([] for _ in range(9))
         self.patina = ([], [])
         self.bloqueo = ([], [])
 
@@ -323,13 +321,12 @@ class Grafica:
         self.ra.append(-d[7])          # el motor A va en espejo: adelante del carro = RPM negativas
         self.rb.append(d[8])
         self.venc.append(d[12])
-        self.vimu.append(d[13])
-        self.wenc.append(d[14])
-        estado = int(d[15])
-        if estado & 3:
+        self.wenc.append(d[13])
+        estado = int(d[14])
+        if estado & PATINA:
             self.patina[0].append(-d[2])
             self.patina[1].append(d[1])
-        if estado & 12:
+        if estado & BLOQUEO:
             self.bloqueo[0].append(-d[2])
             self.bloqueo[1].append(d[1])
 
@@ -356,7 +353,7 @@ class Grafica:
         t = self.t[i0:]
         for linea, datos in ((self.l_rumbo, self.rumbo), (self.l_gz, self.gz),
                              (self.l_wenc, self.wenc), (self.l_venc, self.venc),
-                             (self.l_vimu, self.vimu), (self.l_a, self.ra), (self.l_b, self.rb)):
+                             (self.l_a, self.ra), (self.l_b, self.rb)):
             linea.set_data(t, datos[i0:])
         self.ax_r.set_xlim(max(0, t[-1] - VENTANA_S), max(VENTANA_S, t[-1]))
         for a in (self.ax_r, self.ax_g, self.ax_a, self.ax_v):
@@ -444,7 +441,7 @@ def main():
                         continue
                     csv.write(texto[2:] + "\n")
                     graf.agregar(d)
-                    avisos = texto_avisos(int(d[15]))
+                    avisos = texto_avisos(int(d[14]))
                     if avisos and avisos != avisos_antes:
                         print("\n[%.1f s] AVISO: %s" % (d[0] / 1000, avisos))
                     avisos_antes = avisos

@@ -53,14 +53,13 @@ TABLA = (0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0)
 
 
 # === DETECTOR INICIO (este bloque no usa hardware: se puede probar en el PC) ===
-# Bits del estado
-SIN_AVANCE = 1     # las ruedas giran pero el acelerómetro no ve el cambio de velocidad (solo aviso)
+# Bits del estado (el 1 era el aviso "sin avance" del acelerómetro, que se quitó;
+# esa versión está en el commit con la etiqueta cleanbot-con-acelerometro)
 PATINA_GIRO = 2    # las ruedas dicen que gira, el giroscopio dice que no tanto
 BLOQUEO_A = 4      # rueda A frenada: PWM alto y casi sin velocidad
 BLOQUEO_B = 8
 
 ANCHO_MM = 190.0          # distancia efectiva entre ruedas (medida con los recorridos)
-G_MM_S2 = 9806.65         # 1 g en mm/s²
 
 BLOQ_PWM = 70.0           # % de PWM a partir del cual se sospecha bloqueo
 BLOQ_FRACCION = 0.25      # ... si la rueda va a menos de esta fracción de la meta
@@ -71,15 +70,6 @@ GIRO_VENTANA = 4          # ticks (4 x 50 ms = 0,2 s) para comparar giros
 GIRO_FALTA_MIN = math.radians(3)  # el giroscopio debe quedarse corto en más de 3°...
 GIRO_FALTA_REL = 0.5              # ... y en más del 50 % de lo que dicen las ruedas
 
-AV_TAU = 0.7              # s: qué tan rápido se acerca la velocidad de la IMU a la de las ruedas
-AV_V_MIN = 60.0           # mm/s: por debajo no se juzga el avance
-AV_E_MIN = 50.0           # mm/s: diferencia mínima para sospechar
-AV_E_REL = 0.6            # ... y relativa a la velocidad de las ruedas
-AV_TICKS = 3              # sostenido 3 ticks (0,15 s)
-AV_FUGA = 1.0             # s: con el aviso puesto, la velocidad de la IMU se lleva a 0
-RUEDAS_QUIETAS_TICKS = 5  # 0,25 s sin pulsos -> el carro está quieto (velocidad IMU = 0)
-PARADO_TICKS = 10         # 0,5 s quieto y sin motores -> se recalibra el acelerómetro
-
 
 class Detector:
     def __init__(self):
@@ -88,20 +78,12 @@ class Detector:
         self.vent_enc = []        # giro según encoders en cada tick (rad)
         self.vent_gir = []        # giro según giroscopio en cada tick (rad)
         self.v_enc = 0.0          # velocidad hacia adelante según encoders (mm/s)
-        self.v_imu = 0.0          # velocidad hacia adelante según acelerómetro (mm/s)
         self.w_enc = 0.0          # giro según encoders (rad/s)
-        self.cuenta_av = 0
-        self.cuenta_quietas = 0   # ticks seguidos sin pulsos en ninguna rueda
-        self.cuenta_parado = 0    # ... y además sin motores
 
     def reiniciar(self):
         # Nuevo comando de movimiento: se borran los avisos y se empieza a juzgar de nuevo
         self.estado = 0
-        self.cuenta_a = self.cuenta_b = self.cuenta_av = 0
-        self.v_imu = self.v_enc
-
-    def parado(self):
-        return self.cuenta_parado >= PARADO_TICKS
+        self.cuenta_a = self.cuenta_b = 0
 
     def _bloqueo(self, meta, rpm, pwm, cuenta):
         if abs(meta) >= 15 and abs(pwm) >= BLOQ_PWM:
@@ -111,10 +93,10 @@ class Detector:
         return 0
 
     def paso(self, meta_a, meta_b, rpm_a, rpm_b, pwm_a, pwm_b,
-             ds_a, ds_b, dth_gir, dv_acel, dt):
+             ds_a, ds_b, dth_gir, dt):
         """Un tick del lazo de control.
         ds_a, ds_b: avance de cada rueda hacia adelante (mm); dth_gir: giro medido por el
-        giroscopio (rad); dv_acel: integral de la aceleración hacia adelante (mm/s).
+        giroscopio (rad).
         Devuelve True si en este tick se debe sumar el avance a la trayectoria."""
         # 1) Bloqueo de cada rueda
         self.cuenta_a = self._bloqueo(meta_a, rpm_a, pwm_a, self.cuenta_a)
@@ -140,39 +122,9 @@ class Detector:
         else:
             self.estado &= ~PATINA_GIRO
 
-        # 3) Avance real: la velocidad de las ruedas contra la integral del acelerómetro.
-        #    Es solo un aviso: no frena la trayectoria (el acelerómetro confunde inclinación
-        #    con aceleración y en la mesa daba falsas alarmas).
+        # 3) Mientras patina, ese avance no se suma (las ruedas giran pero el carro no
+        #    gira como ellas dicen: en el aire, o una rueda resbalando)
         self.v_enc = (ds_a + ds_b) / 2 / dt
-        if ds_a == 0 and ds_b == 0:
-            self.cuenta_quietas += 1
-        else:
-            self.cuenta_quietas = 0
-        if self.cuenta_quietas and meta_a == 0 and meta_b == 0:
-            self.cuenta_parado += 1
-        else:
-            self.cuenta_parado = 0
-        if self.cuenta_quietas >= RUEDAS_QUIETAS_TICKS:
-            self.v_imu = 0.0                           # ruedas quietas: carro quieto
-        else:
-            self.v_imu += dv_acel
-        dif = self.v_enc - self.v_imu
-        dif_sentido = dif if self.v_enc >= 0 else -dif  # > 0: las ruedas van más rápido que el carro
-        if not self.estado & SIN_AVANCE:
-            self.v_imu += (self.v_enc - self.v_imu) * dt / AV_TAU
-            if abs(self.v_enc) > AV_V_MIN and dif_sentido > max(AV_E_MIN, AV_E_REL * abs(self.v_enc)):
-                self.cuenta_av += 1
-            else:
-                self.cuenta_av = 0
-            if self.cuenta_av >= AV_TICKS:
-                self.estado |= SIN_AVANCE
-        else:
-            self.v_imu -= self.v_imu * dt / AV_FUGA
-            # Se quita el aviso si las ruedas paran o si el carro vuelve a seguirlas
-            if abs(self.v_enc) < 5 or dif_sentido < 0.25 * abs(self.v_enc):
-                self.estado &= ~SIN_AVANCE
-                self.cuenta_av = 0
-                self.v_imu = self.v_enc
         return not (self.estado & PATINA_GIRO)
 # === DETECTOR FIN ===
 
@@ -296,9 +248,9 @@ det = Detector()
 
 enviar("Calibrando IMU, no muevas el carro...")
 sesgo_ax, sesgo_ay, az0, sesgo_gx, sesgo_gy, sesgo = calibrar()
-enviar("Listo (sesgo giro %.2f grados/s, acel adelante %.3f g)" % (sesgo, sesgo_ay))
-enviar("Datos: D,t_ms,x_mm,y_mm,rumbo,gz,ax,ay,rpm_a,rpm_b,pwm_a,pwm_b,vel,v_enc,v_imu,w_enc,estado")
-enviar("Pasos: P,t_ms,dt,ds_a,ds_b,dth_gir,dv_acel,meta_a,meta_b,rpm_a,rpm_b,pwm_a,pwm_b,gx,gy,ay,az,estado")
+enviar("Listo (sesgo giro %.2f grados/s)" % sesgo)
+enviar("Datos: D,t_ms,x_mm,y_mm,rumbo,gz,ax,ay,rpm_a,rpm_b,pwm_a,pwm_b,vel,v_enc,w_enc,estado")
+enviar("Pasos: P,t_ms,dt,ds_a,ds_b,dth_gir,meta_a,meta_b,rpm_a,rpm_b,pwm_a,pwm_b,gx,gy,ax,ay,az,estado")
 
 vel = VEL_INICIAL
 v = 0              # velocidad hacia adelante (RPM)
@@ -314,10 +266,10 @@ t_print = t_ctrl
 rpm_a = rpm_b = 0.0
 meta_a = meta_b = 0.0
 gz = ax = ay = az = gx = gy = 0.0
-suma_gx = suma_gy = suma_az = 0.0   # promedios por tick para el registro
-dv_acel = 0.0      # integral de la aceleración hacia adelante desde el último tick (mm/s)
-suma_ay = 0.0      # para recalibrar el acelerómetro cuando el carro está quieto
-n_ay = 0
+# Promedios por tick de la IMU, solo para el registro (P,...): el acelerómetro ya no entra
+# en la odometría, pero se guarda para estudiar después cómo detectar que alzan el carro
+suma_gx = suma_gy = suma_ax = suma_ay = suma_az = 0.0
+n_imu = 0
 rumbo_tick = 0.0   # rumbo en el tick anterior
 estado_envio = 0   # avisos ocurridos desde el último envío
 x = y = 0.0        # posición estimada en mm (x = adelante al arrancar, y = izquierda)
@@ -387,7 +339,7 @@ try:
                 motor_b.frenar()
                 enviar("Calibrando IMU, no muevas el carro...")
                 sesgo_ax, sesgo_ay, az0, sesgo_gx, sesgo_gy, sesgo = calibrar()
-                enviar("Listo (sesgo giro %.2f grados/s, acel adelante %.3f g)" % (sesgo, sesgo_ay))
+                enviar("Listo (sesgo giro %.2f grados/s)" % sesgo)
                 x = y = rumbo = rumbo_tick = 0.0
                 t_imu = time.ticks_us()
                 ultimo_rx = time.ticks_ms()
@@ -407,19 +359,19 @@ try:
         if con_pc and time.ticks_diff(time.ticks_ms(), ultimo_rx) > TIEMPO_LATIDO_MS:
             mover(0, 0)
 
-        # 3) IMU en cada vuelta: rumbo (giroscopio) y velocidad (acelerómetro)
+        # 3) IMU en cada vuelta: el giroscopio da el rumbo
         ax, ay, az, gx, gy, gz = leer_imu()
         ahora = time.ticks_us()
         dt_imu = time.ticks_diff(ahora, t_imu) / 1e6
         t_imu = ahora
         gz -= sesgo
         rumbo += gz * dt_imu
-        dv_acel += (ay - sesgo_ay) * G_MM_S2 * dt_imu
-        suma_ay += ay
         suma_gx += gx - sesgo_gx
         suma_gy += gy - sesgo_gy
+        suma_ax += ax
+        suma_ay += ay
         suma_az += az
-        n_ay += 1
+        n_imu += 1
 
         # 4) Lazo de control cada DT_MS
         if time.ticks_diff(time.ticks_ms(), t_ctrl) >= DT_MS:
@@ -448,20 +400,17 @@ try:
             dth_gir = math.radians(rumbo - rumbo_tick)
             rumbo_tick = rumbo
             sumar = det.paso(-meta_a, meta_b, -rpm_a, rpm_b, -motor_a.salida, motor_b.salida,
-                             ds_a, ds_b, dth_gir, dv_acel, dt)
-            if n_ay:   # registro de cada tick (20 por segundo) para revisar el detector en el PC
-                enviar("P,%d,%.4f,%.3f,%.3f,%.5f,%.2f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.4f,%.4f,%d" %
-                      (time.ticks_diff(t_ctrl, t_inicio), dt, ds_a, ds_b, dth_gir, dv_acel,
+                             ds_a, ds_b, dth_gir, dt)
+            if n_imu:  # registro de cada tick (20 por segundo) para revisar el detector en el PC
+                enviar("P,%d,%.4f,%.3f,%.3f,%.5f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.4f,%.4f,%.4f,%d" %
+                      (time.ticks_diff(t_ctrl, t_inicio), dt, ds_a, ds_b, dth_gir,
                        -meta_a, meta_b, -rpm_a, rpm_b, -motor_a.salida, motor_b.salida,
-                       suma_gx / n_ay, suma_gy / n_ay, suma_ay / n_ay, suma_az / n_ay, det.estado))
-            dv_acel = 0.0
-            suma_gx = suma_gy = suma_az = 0.0
+                       suma_gx / n_imu, suma_gy / n_imu, suma_ax / n_imu, suma_ay / n_imu,
+                       suma_az / n_imu, det.estado))
+            suma_gx = suma_gy = suma_ax = suma_ay = suma_az = 0.0
+            n_imu = 0
             if det.estado & (BLOQUEO_A | BLOQUEO_B) and (v or w or meta_giro is not None):
                 mover(0, 0)                           # rueda frenada: parar los motores
-            if det.parado() and abs(gz) < 2 and n_ay:
-                sesgo_ay += 0.1 * (suma_ay / n_ay - sesgo_ay)   # recalibrar estando quieto
-            suma_ay = 0.0
-            n_ay = 0
 
             # Odometría: cuánto avanzó el centro del carro y en qué dirección
             d = (ds_a + ds_b) / 2 if sumar else 0.0
@@ -473,10 +422,10 @@ try:
         # 5) Mandar los datos (control_pc.py los grafica y los guarda)
         if time.ticks_diff(time.ticks_ms(), t_print) >= DATOS_MS:
             t_print = time.ticks_ms()
-            enviar("D,%d,%.1f,%.1f,%.2f,%.2f,%.3f,%.3f,%.1f,%.1f,%.1f,%.1f,%d,%.1f,%.1f,%.1f,%d" %
+            enviar("D,%d,%.1f,%.1f,%.2f,%.2f,%.3f,%.3f,%.1f,%.1f,%.1f,%.1f,%d,%.1f,%.1f,%d" %
                   (time.ticks_diff(t_print, t_inicio), x, y, rumbo, gz, ax, ay,
                    rpm_a, rpm_b, motor_a.salida, motor_b.salida, vel,
-                   det.v_enc, det.v_imu, math.degrees(det.w_enc), estado_envio | det.estado))
+                   det.v_enc, math.degrees(det.w_enc), estado_envio | det.estado))
             estado_envio = 0
         time.sleep_ms(1)
 except KeyboardInterrupt:
