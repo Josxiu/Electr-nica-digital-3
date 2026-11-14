@@ -40,22 +40,26 @@
 #include "systick.h"
 #include "uart_tx_irq.h"
 
-static medicion_t medidor;
-static reporte_t  reportes;
+static medicion_t medidor;   /**< Estado del medidor (lo usa solo el main). */
+static reporte_t  reportes;  /**< Generador de reportes. */
 
-/* Avisos del SysTick al main. */
-static volatile uint32_t ticks_pendientes = 0u;
-static volatile uint32_t t_ultimo_tick_us = 0u;
+static volatile uint32_t ticks_pendientes = 0u;  /**< Ticks de SysTick aún no atendidos por el main. */
+static volatile uint32_t t_ultimo_tick_us = 0u;  /**< Instante del último tick, en µs. */
 
-/* La ISR del GPIO recuerda si no pudo guardar un evento, para marcar la
- * pérdida en el siguiente que sí logre guardar (así queda en su lugar). */
+/** La ISR del GPIO recuerda si no pudo guardar un evento, para marcar la
+ *  pérdida en el siguiente que sí logre guardar (así queda en su lugar). */
 static bool perdida_pendiente = false;
 
 /* ------------------------------------------------------------------------ */
 /* ISRs: solo atienden el hardware y dejan constancia                       */
 /* ------------------------------------------------------------------------ */
 
-/** @brief Contexto IO_IRQ_BANK0. Solo encola el flanco. */
+/**
+ * @brief Contexto IO_IRQ_BANK0. Solo encola el flanco.
+ * @param subida        true si el flanco fue de subida.
+ * @param t_us          instante del flanco en µs.
+ * @param hubo_perdida  true si la ISR detectó flancos perdidos.
+ */
 static void al_flanco(bool subida, uint32_t t_us, bool hubo_perdida)
 {
     evento_flanco_t e = {
@@ -147,6 +151,8 @@ static void procesar_reporte(void)
 
 /* ------------------------------------------------------------------------ */
 
+/** @brief Punto de entrada de la versión híbrida (polling con interrupciones).
+ *  @return no retorna: termina en un lazo infinito. */
 int main(void)
 {
     diagnostico_iniciar();

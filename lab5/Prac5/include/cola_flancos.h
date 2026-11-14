@@ -32,12 +32,14 @@ void cola_flancos_iniciar(void);
 
 /**
  * @brief Mete un evento (lo llama la ISR).
+ * @param e  evento a copiar en la cola (lo conserva quien llama).
  * @return false si la cola estaba llena (el evento no se guardó).
  */
 bool cola_flancos_meter(const evento_flanco_t *e);
 
 /**
  * @brief Saca el evento más antiguo (lo llama el main).
+ * @param e  [salida] donde se copia el evento; no se toca si la cola está vacía.
  * @return false si la cola estaba vacía.
  */
 bool cola_flancos_sacar(evento_flanco_t *e);

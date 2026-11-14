@@ -28,7 +28,10 @@
  */
 typedef void (*entrada_callback_t)(bool subida, uint32_t t_us, bool hubo_perdida);
 
-/** @brief Configura el pin como entrada digital sin resistencias internas. */
+/**
+ * @brief Configura el pin como entrada digital sin resistencias internas.
+ * @param pin  número de GPIO de la señal medida.
+ */
 void entrada_iniciar(unsigned pin);
 
 /** @return nivel actual del pin (true = alto). */

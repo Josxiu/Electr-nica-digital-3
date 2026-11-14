@@ -52,7 +52,11 @@ bool diagnostico_pedido(void);
  */
 void diagnostico_imprimir(const char *version, const diagnostico_t *d);
 
-/** @brief Imprime un mensaje de error por la consola USB (si existe). */
+/**
+ * @brief Imprime un mensaje de error por la consola USB (si existe).
+ * @param version  nombre de la versión que reporta el error.
+ * @param mensaje  texto del error.
+ */
 void diagnostico_error(const char *version, const char *mensaje);
 
 #endif /* DIAGNOSTICO_H */

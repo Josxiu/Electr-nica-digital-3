@@ -12,3 +12,6 @@ EXTRACT_ALL            = YES
 GENERATE_LATEX         = NO
 EXCLUDE                = build
 INPUT_ENCODING         = UTF-8
+PREDEFINED             = "__not_in_flash_func(x)=x"
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES

@@ -36,8 +36,8 @@
 #include "systick.h"
 #include "uart_tx_irq.h"
 
-static medicion_t medidor;
-static reporte_t  reportes;
+static medicion_t medidor;   /**< Estado del medidor (lo modifica la ISR del GPIO). */
+static reporte_t  reportes;  /**< Generador de reportes. */
 
 /* ------------------------------------------------------------------------ */
 /* Manejadores de la aplicación (corren dentro de ISRs)                      */
@@ -46,6 +46,9 @@ static reporte_t  reportes;
 /**
  * @brief Llamada por la ISR del GPIO en cada flanco.
  * Contexto: IO_IRQ_BANK0. Registra el flanco directamente en el medidor.
+ * @param subida        true si el flanco fue de subida.
+ * @param t_us          instante del flanco en µs.
+ * @param hubo_perdida  true si la ISR detectó flancos perdidos.
  */
 static void al_flanco(bool subida, uint32_t t_us, bool hubo_perdida)
 {
@@ -108,6 +111,8 @@ static void atender_diagnostico(void)
 
 /* ------------------------------------------------------------------------ */
 
+/** @brief Punto de entrada de la versión por interrupciones.
+ *  @return no retorna: termina en un lazo infinito. */
 int main(void)
 {
     diagnostico_iniciar();

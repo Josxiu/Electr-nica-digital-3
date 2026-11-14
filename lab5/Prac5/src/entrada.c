@@ -9,9 +9,9 @@
 #include "hardware/irq.h"
 #include "hardware/timer.h"
 
-static unsigned pin_entrada;
-static volatile entrada_callback_t callback = NULL;
-static volatile uint32_t conteo_irq = 0u;
+static unsigned pin_entrada;                         /**< GPIO configurado en entrada_iniciar(). */
+static volatile entrada_callback_t callback = NULL;  /**< Función de la versión que recibe cada flanco. */
+static volatile uint32_t conteo_irq = 0u;           /**< Veces que entró la ISR (diagnóstico). */
 
 void entrada_iniciar(unsigned pin)
 {

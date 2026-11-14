@@ -27,39 +27,44 @@
 #if (UART_TX_BUFFER_BYTES & (UART_TX_BUFFER_BYTES - 1u)) != 0
 #error "UART_TX_BUFFER_BYTES debe ser potencia de 2"
 #endif
+/** Máscara para recortar los índices del buffer. */
 #define MASCARA (UART_TX_BUFFER_BYTES - 1u)
 
 /* ------------------------------------------------------------------------ */
 /* Estado del driver                                                        */
 /* ------------------------------------------------------------------------ */
 
-static uart_inst_t *uart_hw_inst;          /* uart0 o uart1                 */
-static unsigned     irq_num;               /* UART0_IRQ o UART1_IRQ         */
+static uart_inst_t *uart_hw_inst;          /**< uart0 o uart1.               */
+static unsigned     irq_num;               /**< UART0_IRQ o UART1_IRQ.       */
 
-static uint8_t buffer[UART_TX_BUFFER_BYTES];
+static uint8_t buffer[UART_TX_BUFFER_BYTES]; /**< Buffer circular de TX; propiedad del driver. */
 
 /* cabeza: la escribe solo el productor.  cola: la escribe solo la ISR.
  * Ambas son volatile porque la otra parte las lee. Son de 32 bits, así que
  * en el M0+ cada lectura/escritura es atómica. Una celda queda siempre libre
  * para distinguir "lleno" de "vacío". */
-static volatile uint32_t cabeza = 0u;
-static volatile uint32_t cola   = 0u;
+static volatile uint32_t cabeza = 0u;  /**< Índice de escritura (productor). */
+static volatile uint32_t cola   = 0u;  /**< Índice de lectura (ISR). */
 
-/* true mientras la interrupción de TX está habilitada (servicio activo). */
+/** true mientras la interrupción de TX está habilitada (servicio activo). */
 static volatile bool servicio_activo = false;
 
-static volatile uint32_t descartes      = 0u;
-static volatile uint32_t interrupciones = 0u;
+static volatile uint32_t descartes      = 0u;  /**< Líneas rechazadas por falta de espacio. */
+static volatile uint32_t interrupciones = 0u;  /**< Entradas a la ISR de TX (diagnóstico). */
 
 /* ------------------------------------------------------------------------ */
 /* Funciones auxiliares                                                     */
 /* ------------------------------------------------------------------------ */
 
+/** @brief Bytes que esperan en el buffer.
+ *  @return cantidad de bytes ocupados. */
 static inline uint32_t bytes_ocupados(void)
 {
     return (cabeza - cola) & MASCARA;
 }
 
+/** @brief Habilita o deshabilita la interrupción de TX en el IMSC.
+ *  @param habilitar  true para habilitar, false para deshabilitar. */
 static inline void habilitar_irq_tx(bool habilitar)
 {
     if (habilitar) {

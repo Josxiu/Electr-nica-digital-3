@@ -81,15 +81,15 @@ typedef struct {
  * medicion_calcular(), fuera de cualquier sección crítica.
  */
 typedef struct {
-    uint32_t n_periodos;
-    uint32_t suma_periodos_us;
-    uint32_t suma_alto_us;
-    bool     sin_transiciones;
+    uint32_t n_periodos;          /**< Periodos completos medidos en la ventana. */
+    uint32_t suma_periodos_us;    /**< Suma de los periodos, en µs. */
+    uint32_t suma_alto_us;        /**< Suma de los tiempos en alto, en µs. */
+    bool     sin_transiciones;    /**< true si pasaron 500 ms sin flancos. */
 } medicion_ventana_t;
 
 /** Resultado listo para reportar. */
 typedef struct {
-    medicion_estado_t estado;
+    medicion_estado_t estado;     /**< Validez de la medición (ver medicion_estado_t). */
     uint32_t frecuencia_mhz;      /**< Frecuencia en milihertz (1 kHz = 1 000 000). */
     uint16_t duty_decimas;        /**< Ciclo de trabajo en décimas de % (25,0 % = 250). */
 } medicion_resultado_t;
@@ -119,6 +119,7 @@ void medicion_registrar_flanco(medicion_t *m, bool subida, uint32_t t_us);
  * Rompe la cadena para no armar un periodo con dos flancos que no son
  * consecutivos. Se llama si la ISR vio subida y bajada pendientes a la vez o
  * si la cola de eventos se llenó.
+ * @param m  medidor.
  */
 void medicion_marcar_perdida(medicion_t *m);
 

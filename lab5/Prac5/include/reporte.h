@@ -36,7 +36,10 @@ typedef struct {
     uint32_t descartados;       /**< Reportes generados que no cupieron en el buffer de TX. */
 } reporte_t;
 
-/** @brief Pone n en 0 y borra los contadores. */
+/**
+ * @brief Pone n en 0 y borra los contadores.
+ * @param r  estado del generador.
+ */
 void reporte_iniciar(reporte_t *r);
 
 /**
@@ -54,10 +57,14 @@ size_t reporte_formatear(reporte_t *r, const medicion_resultado_t *res,
 /**
  * @brief Cuenta un reporte programado que no se alcanzó a generar
  *        (por ejemplo, el main llegó tarde a dos ticks seguidos). Avanza n.
+ * @param r  estado del generador.
  */
 void reporte_omitir(reporte_t *r);
 
-/** @brief Cuenta un reporte que se generó pero el driver UART no aceptó. */
+/**
+ * @brief Cuenta un reporte que se generó pero el driver UART no aceptó.
+ * @param r  estado del generador.
+ */
 void reporte_contar_descarte(reporte_t *r);
 
 #endif /* REPORTE_H */

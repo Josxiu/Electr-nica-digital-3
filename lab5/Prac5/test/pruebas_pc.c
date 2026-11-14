@@ -17,8 +17,13 @@
 #include "medicion.h"
 #include "reporte.h"
 
-static int fallas = 0;
+static int fallas = 0;  /**< Pruebas que fallaron. */
 
+/**
+ * @brief Imprime el resultado de una prueba y cuenta las fallas.
+ * @param condicion  distinto de 0 si la prueba pasó.
+ * @param nombre     descripción de la prueba.
+ */
 static void verificar(int condicion, const char *nombre)
 {
     printf("%-55s %s\n", nombre, condicion ? "OK" : "FALLA");
@@ -28,8 +33,13 @@ static void verificar(int condicion, const char *nombre)
 }
 
 /**
- * Genera una señal ideal desde t0 durante dur_us: periodo T, tiempo en alto tH.
- * Devuelve el instante siguiente a la última subida generada.
+ * @brief Genera una señal ideal desde t0 durante dur_us: periodo T, tiempo en alto tH.
+ * @param m       medidor que recibe los flancos.
+ * @param t0      instante inicial en µs.
+ * @param T       periodo en µs.
+ * @param tH      tiempo en alto en µs.
+ * @param dur_us  duración de la señal en µs.
+ * @return el instante siguiente a la última subida generada.
  */
 static uint32_t generar(medicion_t *m, uint32_t t0, uint32_t T, uint32_t tH, uint32_t dur_us)
 {
@@ -42,6 +52,12 @@ static uint32_t generar(medicion_t *m, uint32_t t0, uint32_t T, uint32_t tH, uin
     return t;
 }
 
+/**
+ * @brief Mide una señal ideal de 100 ms y deja el resultado en @p r.
+ * @param T   periodo en µs.
+ * @param tH  tiempo en alto en µs.
+ * @param r   [salida] resultado de la medición.
+ */
 static void medir(uint32_t T, uint32_t tH, medicion_resultado_t *r)
 {
     medicion_t m;
@@ -52,6 +68,7 @@ static void medir(uint32_t T, uint32_t tH, medicion_resultado_t *r)
     medicion_calcular(&v, r);
 }
 
+/** @brief Ejecuta las pruebas en el PC. @return 0 si todas pasan. */
 int main(void)
 {
     medicion_resultado_t r;

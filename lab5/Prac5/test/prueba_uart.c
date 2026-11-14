@@ -30,6 +30,11 @@
 /**
  * @brief Arma una línea de exactamente @p largo bytes (incluido el '\n').
  * Formato: "P<prueba>,<num>," seguido de letras hasta completar.
+ * @param buf     [salida] destino; debe tener al menos @p largo + 1 bytes.
+ * @param prueba  número de la prueba.
+ * @param num     número de la línea dentro de la prueba.
+ * @param largo   bytes de la línea, incluido el '\n'.
+ * @return @p largo.
  */
 static size_t armar_linea(char *buf, unsigned prueba, unsigned num, size_t largo)
 {
@@ -44,7 +49,10 @@ static size_t armar_linea(char *buf, unsigned prueba, unsigned num, size_t largo
     return largo;
 }
 
-/** @brief Espera (en el main, es solo una prueba) a que el buffer se vacíe. */
+/**
+ * @brief Espera (en el main, es solo una prueba) a que el buffer se vacíe.
+ * @return tiempo de espera en µs.
+ */
 static uint32_t esperar_vaciado_us(void)
 {
     uint32_t t0 = time_us_32();
@@ -54,6 +62,8 @@ static uint32_t esperar_vaciado_us(void)
     return time_us_32() - t0;
 }
 
+/** @brief Punto de entrada de la prueba del driver UART.
+ *  @return no retorna: termina en un lazo infinito. */
 int main(void)
 {
     stdio_init_all();

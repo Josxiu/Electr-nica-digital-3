@@ -12,8 +12,8 @@
 /** Registro SHPR3 del bloque de control del sistema (prioridad de SysTick). */
 #define SHPR3 (*(volatile uint32_t *)(PPB_BASE + M0PLUS_SHPR3_OFFSET))
 
-static volatile systick_callback_t callback = NULL;
-static volatile uint32_t conteo_irq = 0;
+static volatile systick_callback_t callback = NULL;  /**< Función llamada en cada tick. */
+static volatile uint32_t conteo_irq = 0;            /**< Ticks atendidos (diagnóstico). */
 
 bool systick_configurar(uint32_t ticks)
 {

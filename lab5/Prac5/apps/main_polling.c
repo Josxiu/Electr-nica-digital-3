@@ -40,8 +40,8 @@
 #include "reporte.h"
 #include "systick.h"
 
-static medicion_t medidor;
-static reporte_t  reportes;
+static medicion_t medidor;   /**< Estado del medidor. */
+static reporte_t  reportes;  /**< Generador de reportes. */
 
 /**
  * @brief Configura la UART para enviar por polling con las funciones del SDK.
@@ -93,6 +93,8 @@ static void generar_reporte(uint32_t ahora_us)
     }
 }
 
+/** @brief Punto de entrada de la versión por polling.
+ *  @return no retorna: termina en un lazo infinito. */
 int main(void)
 {
     diagnostico_iniciar();

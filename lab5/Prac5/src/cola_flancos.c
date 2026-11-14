@@ -7,12 +7,13 @@
 #if (COLA_FLANCOS_TAM & (COLA_FLANCOS_TAM - 1u)) != 0
 #error "COLA_FLANCOS_TAM debe ser potencia de 2"
 #endif
+/** Máscara para recortar los índices (el tamaño es 2^k). */
 #define MASCARA (COLA_FLANCOS_TAM - 1u)
 
-static evento_flanco_t eventos[COLA_FLANCOS_TAM];
-static volatile uint32_t cabeza = 0u;   /* la escribe solo la ISR  */
-static volatile uint32_t cola   = 0u;   /* la escribe solo el main */
-static volatile uint32_t desbordes = 0u;
+static evento_flanco_t eventos[COLA_FLANCOS_TAM];  /**< Buffer circular de eventos. */
+static volatile uint32_t cabeza = 0u;   /**< Índice de escritura; la escribe solo la ISR.  */
+static volatile uint32_t cola   = 0u;   /**< Índice de lectura; la escribe solo el main. */
+static volatile uint32_t desbordes = 0u; /**< Eventos descartados por cola llena. */
 
 void cola_flancos_iniciar(void)
 {

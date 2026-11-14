@@ -92,9 +92,9 @@
  *   3. SysTick (2 = 0x80): el reporte puede atrasarse unos microsegundos
  *                    sin afectar la tolerancia de ±20 ms.
  */
-#define PRIORIDAD_IRQ_GPIO      0x00u
-#define PRIORIDAD_IRQ_UART      0x40u
-#define PRIORIDAD_SYSTICK       2u
+#define PRIORIDAD_IRQ_GPIO      0x00u  /**< Prioridad NVIC del GPIO (la más alta). */
+#define PRIORIDAD_IRQ_UART      0x40u  /**< Prioridad NVIC de la UART de reportes. */
+#define PRIORIDAD_SYSTICK       2u     /**< Prioridad de SysTick (campo de 2 bits del SHPR3). */
 
 /* ------------------------------------------------------------------------ */
 /* Diagnóstico                                                              */
