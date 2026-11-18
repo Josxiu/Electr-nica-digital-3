@@ -35,7 +35,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(Prac6 src/main.c src/mpu6050.c)
+add_executable(Prac6 src/main.c src/mpu6050.c src/pasos.c)
 
 pico_set_program_name(Prac6 "Prac6")
 pico_set_program_version(Prac6 "0.1")

@@ -1,53 +1,94 @@
 /**
- * @file prueba_mpu6050.c
- * @brief Prueba del driver de la IMU en la placa.
+ * @file main.c
+ * @brief Contador de pasos con la IMU, para probar por el monitor serie.
  *
- * El chip avisa cada muestra por el pin INT y el driver la lee por
- * interrupciones. Una vez por segundo imprime cuántas lecturas llegaron
- * (deben ser MPU_FRECUENCIA_HZ), los fallos y la última lectura.
+ * Flujo polling + interrupciones:
+ *   - ISR del pin INT (200 Hz): el chip tiene una muestra, se pide la lectura.
+ *   - ISR del I2C: la transferencia termino, guarda los bytes.
+ *   - main: recoge la lectura, la pasa al contador de pasos, imprime y atiende
+ *     las teclas. Sin trabajo pendiente, duerme.
  *
- * Con la placa quieta y plana se espera az cerca de 1 g, ax y ay cerca de 0
- * y el giroscopio cerca de 0 (unas décimas de sesgo son normales).
- * Si no llega ninguna lectura, casi siempre es el cable del pin INT.
+ * Teclas por el monitor serie:
+ *   r  empieza una sesion nueva (pasos a cero)
+ *   g  activa o desactiva el envio de datos crudos (CSV) para ajustar el umbral
  */
 #include <stdio.h>
 #include "pico/stdlib.h"
+#include "hardware/sync.h"
 
 #include "config.h"
 #include "mpu6050.h"
+#include "pasos.h"
+
+static pasos_t pasos;
+static bool enviar_crudos = false;
+
+static void atender_muestra(const mpu6050_datos_t *d) {
+    const uint32_t nuevos = pasos_agregar(&pasos, d);
+
+    if (nuevos > 0) {
+        printf("Pasos: %lu (+%lu)\n", (unsigned long)pasos.total, (unsigned long)nuevos);
+    }
+    if (enviar_crudos) {
+        printf("%lu,%.3f,%.3f,%.3f,%.3f,%.3f,%lu\n", (unsigned long)(d->t_us / 1000),
+               d->ax, d->ay, d->az, pasos.mag, pasos.filtrada, (unsigned long)pasos.total);
+    }
+}
+
+static void atender_teclas(void) {
+    const int tecla = getchar_timeout_us(0);
+    if (tecla == 'r') {
+        pasos_iniciar(&pasos);
+        printf("Sesion nueva: pasos = 0\n");
+    } else if (tecla == 'g') {
+        enviar_crudos = !enviar_crudos;
+        if (enviar_crudos) {
+            printf("t_ms,ax,ay,az,mag,filtrada,pasos\n");
+        }
+    }
+}
+
+/** Con 3 lecturas fallidas seguidas el bus quedo colgado: se libera. */
+static void vigilar_bus(void) {
+    if (mpu6050_fallos() >= 3) {
+        mpu6050_recuperar_bus();
+        printf("# I2C sin respuesta, bus reiniciado\n");
+    }
+}
+
+/**
+ * Duerme hasta la proxima interrupcion si no hay nada por atender. La consulta
+ * y el wfi van con las interrupciones enmascaradas: si la lectura llega justo
+ * entre los dos, queda pendiente y el wfi retorna enseguida.
+ */
+static void dormir(void) {
+    const uint32_t estado = save_and_disable_interrupts();
+    if (!mpu6050_hay_lectura()) {
+        __wfi();
+    }
+    restore_interrupts(estado);
+}
 
 int main(void) {
     stdio_init_all();
     sleep_ms(2000);                 /* tiempo para abrir el monitor serie */
 
-    printf("Prueba de la IMU: SDA GP%u, SCL GP%u, INT GP%u\n",
-           PIN_I2C_SDA, PIN_I2C_SCL, MPU_PIN_INT);
     if (!mpu6050_iniciar() || !mpu6050_muestrear_con_int()) {
         while (true) {
-            printf("ERROR: la IMU no responde. Revisa SDA, SCL, VCC y GND.\n");
+            printf("ERROR: la IMU no responde. Revisa SDA, SCL, VCC, GND e INT.\n");
             sleep_ms(1000);
         }
     }
-    printf("lecturas/s  fallos |  ax[g]  ay[g]  az[g] | gx gy gz [grados/s]\n");
-
-    mpu6050_datos_t d = { 0 };
-    uint32_t lecturas = 0, fallos = 0;
-    absolute_time_t informe = make_timeout_time_ms(1000);
+    pasos_iniciar(&pasos);
+    printf("Contador de pasos listo. r = sesion nueva, g = datos crudos\n");
 
     while (true) {
+        mpu6050_datos_t d;
         if (mpu6050_tomar_lectura(&d)) {
-            lecturas++;
+            atender_muestra(&d);
         }
-        if (mpu6050_fallos() >= 3) {
-            fallos += mpu6050_fallos();
-            mpu6050_recuperar_bus();
-        }
-        if (time_reached(informe)) {
-            informe = delayed_by_ms(informe, 1000);
-            printf("%10lu  %6lu | %6.3f %6.3f %6.3f | %7.2f %7.2f %7.2f\n",
-                   (unsigned long)lecturas, (unsigned long)fallos,
-                   d.ax, d.ay, d.az, d.gx, d.gy, d.gz);
-            lecturas = 0;
-        }
+        atender_teclas();
+        vigilar_bus();
+        dormir();
     }
 }
