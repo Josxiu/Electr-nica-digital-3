@@ -14,15 +14,24 @@ void pasos_iniciar(pasos_t *p) {
 
 /** Registra un paso detectado. Devuelve cuantos pasos se suman. */
 static uint32_t registrar_paso(pasos_t *p, uint32_t t_us) {
+    const uint32_t t_anterior_us = p->t_paso_us;
+
     p->hay_paso = true;
     p->t_paso_us = t_us;
     p->candidatos++;
+    if (p->candidatos == 1) {
+        p->t_inicio_us = t_us;
+    }
 
     if (p->caminando) {
+        p->duracion_s = (t_us - t_anterior_us) * 1e-6f;
         p->total++;
         return 1;
     }
     if (p->candidatos >= PASOS_CONFIRMAR) {
+        /* n candidatos dejan n - 1 intervalos medidos; el primero vale el promedio */
+        const float medido_s = (t_us - p->t_inicio_us) * 1e-6f;
+        p->duracion_s = medido_s * p->candidatos / (p->candidatos - 1);
         p->caminando = true;
         p->total += p->candidatos;
         return p->candidatos;

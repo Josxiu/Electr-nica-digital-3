@@ -35,7 +35,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(Prac6 src/main.c src/mpu6050.c src/pasos.c)
+add_executable(Prac6 src/main.c src/mpu6050.c src/pasos.c src/calorias.c)
 
 pico_set_program_name(Prac6 "Prac6")
 pico_set_program_version(Prac6 "0.1")
@@ -61,3 +61,10 @@ target_link_libraries(Prac6
 
 pico_add_extra_outputs(Prac6)
 
+# Prueba del contador de pasos por el monitor serie (no es el programa final)
+add_executable(prueba_pasos pruebas/prueba_pasos.c src/mpu6050.c src/pasos.c src/calorias.c)
+target_include_directories(prueba_pasos PRIVATE ${CMAKE_CURRENT_LIST_DIR}/include)
+target_link_libraries(prueba_pasos pico_stdlib hardware_i2c)
+pico_enable_stdio_usb(prueba_pasos 1)
+pico_enable_stdio_uart(prueba_pasos 0)
+pico_add_extra_outputs(prueba_pasos)

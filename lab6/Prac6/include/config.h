@@ -27,4 +27,8 @@
 #define PASOS_CONFIRMAR     4u      /* pasos seguidos para dar la marcha por iniciada */
 #define PASOS_DT_MAX_S      0.1f    /* una pausa mayor entre muestras reinicia los filtros (s) */
 
+/* Usuario: valores por defecto antes de configurar con los botones */
+#define USUARIO_PESO_KG     83.0f   /* peso por defecto del usuario (kg) */
+#define USUARIO_PASO_M      0.75f   /* largo del paso por defecto (m), se calibra caminando 20 m */
+
 #endif

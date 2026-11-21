@@ -28,9 +28,11 @@ typedef struct {
     float mag;              /**< |a| de la ultima muestra (g). */
     float filtrada;         /**< Senal que se compara con el umbral (g). */
     uint32_t t_paso_us;     /**< Instante del ultimo paso detectado. */
+    float duracion_s;       /**< Duracion de los pasos que se suman en esta muestra (s). */
 
-    float media;            /**< Promedio lento de |a| (la gravedad). */
+    float media;           /**< Promedio lento de |a| (la gravedad). */
     uint32_t t_ant_us;      /**< Instante de la muestra anterior. */
+    uint32_t t_inicio_us;   /**< Instante del primer paso de la marcha. */
     bool iniciado;          /**< Ya hubo una primera muestra. */
     bool hay_paso;          /**< Ya se detecto algun paso. */
     bool armado;            /**< La senal bajo lo suficiente para detectar otro paso. */
