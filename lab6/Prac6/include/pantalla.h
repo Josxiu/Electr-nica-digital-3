@@ -1,73 +1,174 @@
 /**
  * @file pantalla.h
- * @brief Driver no bloqueante (por polling) para pantalla LCD 16x2 (HD44780)
- *        en interfaz paralela de 4 bits.
- *
- * La secuencia de encendido e inicialización a 4 bits se hace una vez al
- * arrancar de forma bloqueante (~50 ms). A partir de ahí, todas las escrituras
- * se encolan en un buffer circular y se envían paso a paso llamando a
- * pantalla_tarea() desde el ciclo principal, sin detener el procesador.
+ * @brief Driver híbrido (Polling + Interrupciones) para pantalla OLED SSD1306 (128x64) por I2C.
+ * @details Proporciona inicialización síncrona mediante polling y actualización asíncrona
+ *          del framebuffer mediante interrupciones de hardware I2C del Pico SDK, empleando
+ *          doble buffer para evitar parpadeos o corrupción visual durante la transmisión.
+ * @defgroup pantalla_driver Driver de Pantalla OLED SSD1306
+ * @{
  */
+
 #ifndef PANTALLA_H
 #define PANTALLA_H
 
-#include <stdbool.h>
 #include <stdint.h>
+#include <stdbool.h>
+#include "pico/stdlib.h"
+#include "hardware/i2c.h"
+
+/** @brief Resolución horizontal de la pantalla OLED en píxeles. */
+#define PANTALLA_ANCHO        128
+
+/** @brief Resolución vertical de la pantalla OLED en píxeles. */
+#define PANTALLA_ALTO         64
+
+/** @brief Dirección I2C por defecto del controlador SSD1306 (7 bits). */
+#define PANTALLA_ADDR_DEFAULT 0x3C
 
 /**
- * @brief Configura los pines GPIO e inicializa el controlador HD44780 en
- *        modo de 4 bits, 2 líneas, cursor apagado.
+ * @brief Inicializa el periférico I2C, detecta la pantalla y configura el controlador SSD1306.
+ * @details Ejecuta el escaneo de dirección y el envío de comandos de arranque de forma
+ *          síncrona (polling). Posteriormente configura la FIFO y habilita la rutina
+ *          de interrupción (`I2C0_IRQ` o `I2C1_IRQ`) para transferencias de pantalla.
  *
- * Bloquea unos 50 ms. Solo se llama durante la inicialización.
- */
-void pantalla_iniciar(void);
-
-/**
- * @brief Avanza la máquina de estados de envío hacia la LCD.
+ * @param[in] i2c     Instancia del controlador I2C a utilizar (`i2c0` o `i2c1`).
+ * @param[in] sda_pin Número de pin GPIO asignado a la línea SDA.
+ * @param[in] scl_pin Número de pin GPIO asignado a la línea SCL.
+ * @param[in] freq_hz Frecuencia del reloj I2C en Hz (ej. `400000` para Fast Mode).
  *
- * Debe llamarse frecuentemente dentro del bucle principal (while(true)).
- * No bloquea: si aún no se cumple el tiempo de espera del controlador,
- * retorna inmediatamente.
+ * @retval true  Pantalla detectada e inicializada correctamente.
+ * @retval false No se encontró ningún dispositivo I2C respondiendo en el bus.
  */
-void pantalla_tarea(void);
+bool pantalla_iniciar(i2c_inst_t *i2c, uint sda_pin, uint scl_pin, uint32_t freq_hz);
 
 /**
- * @brief Encola el comando para borrar toda la pantalla y volver al inicio.
- * @return false si la cola interna está llena.
+ * @brief Indica si hay una transferencia de framebuffer en curso por interrupciones.
+ *
+ * @retval true  El controlador I2C está transmitiendo datos hacia la pantalla.
+ * @retval false El driver está inactivo y listo para iniciar un nuevo envío.
  */
-bool pantalla_limpiar(void);
-
-/**
- * @brief Encola el posicionamiento del cursor.
- * @param col  Columna (0 a 15).
- * @param fila Fila (0 o 1).
- * @return false si la cola interna está llena o coordenadas inválidas.
- */
-bool pantalla_cursor(uint8_t col, uint8_t fila);
-
-/**
- * @brief Encola un carácter para mostrar en la posición actual del cursor.
- * @return false si la cola interna está llena.
- */
-bool pantalla_escribir_char(char c);
-
-/**
- * @brief Encola una cadena de texto terminada en '\0'.
- * @return false si no hay espacio suficiente en la cola para toda la cadena.
- */
-bool pantalla_escribir(const char *texto);
-
-/**
- * @brief Función de conveniencia: posiciona el cursor al inicio de una fila
- *        y escribe el texto rellenando con espacios hasta el final de la línea
- *        (evita caracteres residuales sin necesidad de usar pantalla_limpiar()).
- * @param fila  Fila (0 o 1).
- * @param texto Cadena a mostrar (se trunca a 16 caracteres).
- * @return false si no hay espacio suficiente en la cola.
- */
-bool pantalla_imprimir_fila(uint8_t fila, const char *texto);
-
-/** @return true si hay datos pendientes por enviar en la cola o en curso. */
 bool pantalla_ocupada(void);
 
-#endif /* PANTALLA_H */
+/**
+ * @brief Consulta si ocurrió un error de transmisión (NACK o aborto) en el último envío.
+ *
+ * @retval true  Se detectó condición `TX_ABRT` durante la última transferencia por IRQ.
+ * @retval false La última transferencia finalizó sin errores en el bus.
+ */
+bool pantalla_hubo_error(void);
+
+/**
+ * @brief Bloquea la ejecución mediante espera activa (polling) hasta que finalice la IRQ actual.
+ * @note Útil para sincronizar el bus I2C antes de leer otros sensores conectados
+ *       a las mismas líneas SDA/SCL o antes de entrar en modos de bajo consumo.
+ */
+void pantalla_esperar_lista(void);
+
+/**
+ * @brief Rellena todo el framebuffer de dibujo con un color uniforme.
+ *
+ * @param[in] color `0` para apagar todos los píxeles (negro), distinto de `0` para encenderlos.
+ */
+void pantalla_limpiar(uint8_t color);
+
+/**
+ * @brief Dibuja o borra un píxel individual en el framebuffer de dibujo.
+ * @details Si las coordenadas están fuera de los límites `[0..127, 0..63]`, la llamada se ignora.
+ *
+ * @param[in] x     Coordenada horizontal (columna, `0` a `PANTALLA_ANCHO - 1`).
+ * @param[in] y     Coordenada vertical (fila, `0` a `PANTALLA_ALTO - 1`).
+ * @param[in] color `1` para encender el píxel, `0` para apagarlo.
+ */
+void pantalla_pixel(int x, int y, uint8_t color);
+
+/**
+ * @brief Traza una línea horizontal en el framebuffer de dibujo.
+ *
+ * @param[in] x     Coordenada X del punto inicial.
+ * @param[in] y     Coordenada Y de la línea.
+ * @param[in] w     Longitud de la línea en píxeles hacia la derecha.
+ * @param[in] color `1` para encender píxeles, `0` para apagarlos.
+ */
+void pantalla_hline(int x, int y, int w, uint8_t color);
+
+/**
+ * @brief Traza una línea vertical en el framebuffer de dibujo.
+ *
+ * @param[in] x     Coordenada X de la línea.
+ * @param[in] y     Coordenada Y del punto inicial.
+ * @param[in] h     Longitud de la línea en píxeles hacia abajo.
+ * @param[in] color `1` para encender píxeles, `0` para apagarlos.
+ */
+void pantalla_vline(int x, int y, int h, uint8_t color);
+
+/**
+ * @brief Dibuja el contorno de un rectángulo en el framebuffer de dibujo.
+ *
+ * @param[in] x     Coordenada X de la esquina superior izquierda.
+ * @param[in] y     Coordenada Y de la esquina superior izquierda.
+ * @param[in] w     Ancho del rectángulo en píxeles.
+ * @param[in] h     Alto del rectángulo en píxeles.
+ * @param[in] color `1` para encender píxeles, `0` para apagarlos.
+ */
+void pantalla_rect(int x, int y, int w, int h, uint8_t color);
+
+/**
+ * @brief Dibuja un rectángulo relleno en el framebuffer de dibujo.
+ *
+ * @param[in] x     Coordenada X de la esquina superior izquierda.
+ * @param[in] y     Coordenada Y de la esquina superior izquierda.
+ * @param[in] w     Ancho del rectángulo en píxeles.
+ * @param[in] h     Alto del rectángulo en píxeles.
+ * @param[in] color `1` para encender píxeles, `0` para apagarlos.
+ */
+void pantalla_fill_rect(int x, int y, int w, int h, uint8_t color);
+
+/**
+ * @brief Renderiza una cadena de texto ASCII usando la fuente bitmap interna de 8x8.
+ * @details Los caracteres fuera del rango imprimible ASCII (`32..126`) se sustituyen por `'?'`.
+ *
+ * @param[in] txt    Puntero a la cadena de texto terminada en carácter nulo (`'\0'`).
+ * @param[in] x      Coordenada X de inicio del primer carácter.
+ * @param[in] y      Coordenada Y superior del texto.
+ * @param[in] escala Factor de ampliación entero (`1` = 8x8 px, `2` = 16x16 px, `3` = 24x24 px, etc.).
+ */
+void pantalla_texto(const char *txt, int x, int y, uint8_t escala);
+
+/**
+ * @brief Dibuja un icono gráfico de batería con barra de carga proporcional.
+ *
+ * @param[in] x   Coordenada X de la esquina superior izquierda del icono (22x10 px total).
+ * @param[in] y   Coordenada Y de la esquina superior izquierda del icono.
+ * @param[in] pct Nivel de carga de la batería en porcentaje (`0` a `100`). Valores superiores se saturan a `100`.
+ */
+void pantalla_dibujar_bateria(int x, int y, uint8_t pct);
+
+/**
+ * @brief Inicia de forma no bloqueante el envío del framebuffer actual a la pantalla vía IRQ.
+ * @details Copia el buffer de dibujo al buffer de transmisión y habilita las interrupciones
+ *          `TX_EMPTY`, `STOP_DET` y `TX_ABRT` para transferir ventana de direccionamiento
+ *          y los 1024 bytes de píxeles en segundo plano.
+ *
+ * @retval true  Transferencia iniciada correctamente.
+ * @retval false La pantalla sigue ocupada transmitiendo el cuadro anterior; petición descartada.
+ */
+bool pantalla_mostrar(void);
+
+/**
+ * @brief Compone y envía la interfaz completa de actividad física (pasos, calorías y batería).
+ * @details Dibuja el encabezado `"Pasos"`, el icono de batería, el conteo de pasos a escala 3x,
+ *          la línea divisoria horizontal, las calorías con un decimal y el porcentaje numérico,
+ *          disparando inmediatamente su envío por interrupciones.
+ *
+ * @param[in] pasos       Conteo acumulado de pasos a mostrar (alineado a 5 dígitos).
+ * @param[in] calorias    Gasto energético estimado en kilocalorías (valores negativos se limitan a `0.0`).
+ * @param[in] bateria_pct Porcentaje de carga de batería (`0` a `100`).
+ *
+ * @retval true  Cuadro compuesto y envío por interrupciones iniciado.
+ * @retval false El controlador continúa enviando el cuadro previo; no se modificó el buffer.
+ */
+bool pantalla_mostrar_actividad(uint32_t pasos, float calorias, uint8_t bateria_pct);
+
+#endif // PANTALLA_H
+
+/** @} */ // end of pantalla_driver

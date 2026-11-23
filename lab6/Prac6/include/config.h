@@ -31,4 +31,10 @@
 #define USUARIO_PESO_KG     83.0f   /* peso por defecto del usuario (kg) */
 #define USUARIO_PASO_M      0.75f   /* largo del paso por defecto (m), se calibra caminando 20 m */
 
+/* Pantalla OLED SSD1306 128x64 por I2C (bus propio, la IMU va en i2c1) */
+#define PANTALLA_I2C        i2c0
+#define PANTALLA_PIN_SDA    8u
+#define PANTALLA_PIN_SCL    9u
+#define PANTALLA_I2C_HZ     400000u
+
 #endif
