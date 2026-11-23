@@ -35,6 +35,7 @@ static uint8_t crudo[N_BYTES];              /* la llena la ISR del I2C */
 static volatile bool ocupado = false;       /* hay una lectura en curso */
 static volatile bool lectura_nueva = false;
 static volatile uint32_t fallos = 0;
+static volatile uint32_t perdidas = 0;      /* lecturas que llegaron sin que el main tomara la anterior */
 static volatile uint32_t t_pedido_us = 0;
 static uint32_t t_lectura_us = 0;           /* instante de la lectura guardada en crudo[] */
 
@@ -82,6 +83,9 @@ static void isr_i2c(void) {
 
     const bool aborto = (causa & I2C_IC_INTR_STAT_R_TX_ABRT_BITS) != 0;
     if (!aborto && hw->rxflr == N_BYTES) {
+        if (lectura_nueva) {
+            perdidas++;                 /* la anterior no se alcanzo a tomar: se pisa */
+        }
         for (int i = 0; i < N_BYTES; i++) {
             crudo[i] = (uint8_t)hw->data_cmd;
         }
@@ -234,6 +238,10 @@ bool mpu6050_tomar_lectura(mpu6050_datos_t *d) {
 
 uint32_t mpu6050_fallos(void) {
     return fallos;
+}
+
+uint32_t mpu6050_perdidas(void) {
+    return perdidas;
 }
 
 void mpu6050_recuperar_bus(void) {

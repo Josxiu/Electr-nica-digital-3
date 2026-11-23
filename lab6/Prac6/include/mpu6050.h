@@ -70,6 +70,9 @@ bool mpu6050_tomar_lectura(mpu6050_datos_t *d);
 /** @return lecturas fallidas seguidas (vuelve a 0 con la primera que sale bien). */
 uint32_t mpu6050_fallos(void);
 
+/** @return lecturas perdidas desde el arranque: llego una nueva sin que se tomara la anterior. */
+uint32_t mpu6050_perdidas(void);
+
 /**
  * @brief Libera un bus I2C colgado: hasta 9 pulsos de SCL para que el chip
  *        suelte SDA, un STOP, y vuelve a iniciar el bus. No reconfigura el chip.

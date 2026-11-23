@@ -23,6 +23,16 @@ typedef struct {
 void calorias_iniciar(calorias_t *c, float peso_kg, float paso_m);
 
 /**
+ * @brief Estima el largo del paso con la estatura (L = 0,415 x estatura).
+ *
+ * Es la aproximacion que usan los podometros comerciales; se contrasta con
+ * el paso medido de cada participante en las pruebas.
+ * @param estatura_m estatura (m).
+ * @return largo del paso (m).
+ */
+float calorias_paso_por_estatura(float estatura_m);
+
+/**
  * @brief Suma el gasto calorico de un grupo de pasos.
  * @param c          datos del usuario y acumulado.
  * @param n_pasos    cantidad de pasos del grupo.

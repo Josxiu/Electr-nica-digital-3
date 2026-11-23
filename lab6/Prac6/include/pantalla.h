@@ -58,13 +58,6 @@ bool pantalla_ocupada(void);
 bool pantalla_hubo_error(void);
 
 /**
- * @brief Bloquea la ejecución mediante espera activa (polling) hasta que finalice la IRQ actual.
- * @note Útil para sincronizar el bus I2C antes de leer otros sensores conectados
- *       a las mismas líneas SDA/SCL o antes de entrar en modos de bajo consumo.
- */
-void pantalla_esperar_lista(void);
-
-/**
  * @brief Rellena todo el framebuffer de dibujo con un color uniforme.
  *
  * @param[in] color `0` para apagar todos los píxeles (negro), distinto de `0` para encenderlos.
@@ -153,6 +146,21 @@ void pantalla_dibujar_bateria(int x, int y, uint8_t pct);
  * @retval false La pantalla sigue ocupada transmitiendo el cuadro anterior; petición descartada.
  */
 bool pantalla_mostrar(void);
+
+/**
+ * @brief Apaga la pantalla (modo dormir y bomba de carga apagada), sin bloquear.
+ * @details Envía los comandos por interrupciones; la RAM de la pantalla se conserva.
+ * @retval true  Envío iniciado.
+ * @retval false La pantalla sigue ocupada; hay que intentarlo de nuevo.
+ */
+bool pantalla_apagar(void);
+
+/**
+ * @brief Enciende la pantalla después de pantalla_apagar(), sin bloquear.
+ * @retval true  Envío iniciado.
+ * @retval false La pantalla sigue ocupada; hay que intentarlo de nuevo.
+ */
+bool pantalla_encender(void);
 
 #endif // PANTALLA_H
 

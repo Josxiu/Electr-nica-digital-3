@@ -21,24 +21,37 @@
 #include "mpu6050.h"
 #include "pasos.h"
 #include "calorias.h"
+#include "estado.h"
 
 static pasos_t pasos;
 static calorias_t calorias;
+static estado_disp_t dispositivo;
 static bool enviar_crudos = false;
 
 /** Empieza una sesion: pasos y calorias en cero. */
 static void iniciar_sesion(void) {
     pasos_iniciar(&pasos);
-    calorias_iniciar(&calorias, USUARIO_PESO_KG, USUARIO_PASO_M);
+    calorias_iniciar(&calorias, (float)USUARIO_PESO_KG,
+                     calorias_paso_por_estatura((float)USUARIO_ESTATURA_CM / 100.0f));
+    estado_iniciar(&dispositivo, time_us_32());
 }
 
 static void atender_muestra(const mpu6050_datos_t *d) {
+    const uint32_t ultimo_paso_us = dispositivo.t_ultimo_paso_us;
     const uint32_t nuevos = pasos_agregar(&pasos, d);
 
     if (nuevos > 0) {
         calorias_sumar(&calorias, nuevos, pasos.duracion_s);
-        printf("Pasos: %lu (+%lu)  %.3f kcal\n", (unsigned long)pasos.total,
-               (unsigned long)nuevos, calorias.kcal);
+        printf("Pasos: %lu (+%lu)  %.3f kcal  perdidas: %lu\n", (unsigned long)pasos.total,
+               (unsigned long)nuevos, calorias.kcal, (unsigned long)mpu6050_perdidas());
+    }
+    if (estado_actualizar(&dispositivo, d->t_us, nuevos)) {
+        if (dispositivo.actual == ESTADO_REPOSO) {
+            printf("# Reposo: %.3f s despues del ultimo paso\n",
+                   (d->t_us - ultimo_paso_us) * 1e-6f);
+        } else {
+            printf("# Activo: marcha confirmada\n");
+        }
     }
     if (enviar_crudos) {
         printf("%lu,%.3f,%.3f,%.3f,%.3f,%.3f,%lu\n", (unsigned long)(d->t_us / 1000),

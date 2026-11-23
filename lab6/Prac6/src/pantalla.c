@@ -26,7 +26,8 @@
 typedef enum {
     PANTALLA_STATE_IDLE = 0,   /**< Bus libre; sin transferencia activa de pantalla. */
     PANTALLA_STATE_CMD_WINDOW, /**< Fase 1: enviando comandos de ventana de columnas y páginas. */
-    PANTALLA_STATE_DATA_FB     /**< Fase 2: enviando byte de control 0x40 + 1024 bytes de píxeles. */
+    PANTALLA_STATE_DATA_FB,    /**< Fase 2: enviando byte de control 0x40 + 1024 bytes de píxeles. */
+    PANTALLA_STATE_CMD         /**< Comandos sueltos (apagar o encender): al STOP queda libre. */
 } pantalla_tx_state_t;
 
 /** @brief Puntero a la instancia hardware I2C activa. */
@@ -47,6 +48,12 @@ static const uint8_t cmd_window[] = {
     0x21, 0, PANTALLA_ANCHO - 1, // Configurar dirección de columna (0..127)
     0x22, 0, PANTALLA_PAGES - 1  // Configurar dirección de página (0..7)
 };
+
+/** @brief Apagado: pantalla en modo dormir y bomba de carga apagada. */
+static const uint8_t cmd_apagar[] = { 0x00, 0xAE, 0x8D, 0x10 };
+
+/** @brief Encendido: bomba de carga encendida y pantalla activa. */
+static const uint8_t cmd_encender[] = { 0x00, 0x8D, 0x14, 0xAF };
 
 /** @brief Estado actual de la transferencia asíncrona (compartido con la ISR). */
 static volatile pantalla_tx_state_t pantalla_state = PANTALLA_STATE_IDLE;
@@ -216,7 +223,7 @@ static void pantalla_i2c_isr(void) {
             current_len = sizeof(tx_buf);
             tx_idx = 0;
             hw->intr_mask |= I2C_IC_INTR_MASK_M_TX_EMPTY_BITS;
-        } else if (pantalla_state == PANTALLA_STATE_DATA_FB) {
+        } else if (pantalla_state == PANTALLA_STATE_DATA_FB || pantalla_state == PANTALLA_STATE_CMD) {
             // Fase 2 completada: transmisión finalizada
             hw->intr_mask = 0;
             pantalla_state = PANTALLA_STATE_IDLE;
@@ -263,6 +270,16 @@ static bool pantalla_detectar_direccion_polling(void) {
         }
     }
     return false;
+}
+
+/**
+ * @brief Espera a que termine el primer envio. Solo se usa en pantalla_iniciar,
+ *        donde esperar esta permitido; despues de la inicializacion nadie la llama.
+ */
+static void esperar_envio_inicial(void) {
+    while (pantalla_state != PANTALLA_STATE_IDLE) {
+        tight_loop_contents();
+    }
 }
 
 bool pantalla_iniciar(i2c_inst_t *i2c, uint sda_pin, uint scl_pin, uint32_t freq_hz) {
@@ -312,7 +329,7 @@ bool pantalla_iniciar(i2c_inst_t *i2c, uint sda_pin, uint scl_pin, uint32_t freq
 
     pantalla_limpiar(0);
     pantalla_mostrar();
-    pantalla_esperar_lista();
+    esperar_envio_inicial();
     return true;
 }
 
@@ -322,12 +339,6 @@ bool pantalla_ocupada(void) {
 
 bool pantalla_hubo_error(void) {
     return pantalla_error;
-}
-
-void pantalla_esperar_lista(void) {
-    while (pantalla_state != PANTALLA_STATE_IDLE) {
-        tight_loop_contents();
-    }
 }
 
 void pantalla_limpiar(uint8_t color) {
@@ -404,14 +415,13 @@ void pantalla_dibujar_bateria(int x, int y, uint8_t pct) {
     }
 }
 
-bool pantalla_mostrar(void) {
-    if (pantalla_state != PANTALLA_STATE_IDLE) {
-        return false; // Aún enviando el frame anterior
-    }
-
-    // Copiar el framebuffer listo al buffer de transmisión
-    memcpy(&tx_buf[1], draw_fb, PANTALLA_FB_SIZE);
-
+/**
+ * @brief Deja lista una transferencia y activa las interrupciones; la ISR hace el resto.
+ * @param datos  bytes a enviar (el primero es el byte de control).
+ * @param n      cantidad de bytes.
+ * @param estado estado con el que arranca la ISR.
+ */
+static void iniciar_envio(const uint8_t *datos, size_t n, pantalla_tx_state_t estado) {
     i2c_hw_t *hw = i2c_get_hw(pantalla_i2c);
 
     // Asegurar dirección destino en IC_TAR (útil si se comparte el bus con otros sensores)
@@ -420,9 +430,9 @@ bool pantalla_mostrar(void) {
     hw->enable = 1;
 
     pantalla_error = false;
-    pantalla_state = PANTALLA_STATE_CMD_WINDOW;
-    current_ptr = cmd_window;
-    current_len = sizeof(cmd_window);
+    pantalla_state = estado;
+    current_ptr = datos;
+    current_len = n;
     tx_idx = 0;
 
     (void)hw->clr_intr;
@@ -430,6 +440,31 @@ bool pantalla_mostrar(void) {
     hw->intr_mask = I2C_IC_INTR_MASK_M_TX_EMPTY_BITS |
                     I2C_IC_INTR_MASK_M_STOP_DET_BITS |
                     I2C_IC_INTR_MASK_M_TX_ABRT_BITS;
+}
 
+bool pantalla_mostrar(void) {
+    if (pantalla_state != PANTALLA_STATE_IDLE) {
+        return false; // Aún enviando el frame anterior
+    }
+
+    // Copiar el framebuffer listo al buffer de transmisión
+    memcpy(&tx_buf[1], draw_fb, PANTALLA_FB_SIZE);
+    iniciar_envio(cmd_window, sizeof(cmd_window), PANTALLA_STATE_CMD_WINDOW);
+    return true;
+}
+
+bool pantalla_apagar(void) {
+    if (pantalla_state != PANTALLA_STATE_IDLE) {
+        return false;
+    }
+    iniciar_envio(cmd_apagar, sizeof(cmd_apagar), PANTALLA_STATE_CMD);
+    return true;
+}
+
+bool pantalla_encender(void) {
+    if (pantalla_state != PANTALLA_STATE_IDLE) {
+        return false;
+    }
+    iniciar_envio(cmd_encender, sizeof(cmd_encender), PANTALLA_STATE_CMD);
     return true;
 }

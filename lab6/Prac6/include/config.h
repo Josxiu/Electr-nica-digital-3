@@ -27,9 +27,21 @@
 #define PASOS_CONFIRMAR     4u      /* pasos seguidos para dar la marcha por iniciada */
 #define PASOS_DT_MAX_S      0.1f    /* una pausa mayor entre muestras reinicia los filtros (s) */
 
-/* Usuario: valores por defecto antes de configurar con los botones */
-#define USUARIO_PESO_KG     83.0f   /* peso por defecto del usuario (kg) */
-#define USUARIO_PASO_M      0.75f   /* largo del paso por defecto (m), se calibra caminando 20 m */
+/* Usuario: valores al encender, se cambian con los botones */
+#define USUARIO_PESO_KG     70u     /* peso (kg) */
+#define USUARIO_ESTATURA_CM 170u    /* estatura (cm), de ella sale el largo del paso */
+#define PESO_MIN_KG         40u     /* rango del menu; en los extremos el valor se queda quieto */
+#define PESO_MAX_KG         150u
+#define ESTATURA_MIN_CM     140u
+#define ESTATURA_MAX_CM     200u
+
+/* Botones: del pin a GND, con el pull-up interno */
+#define BOTON_PIN_MODO      13u
+#define BOTON_PIN_MAS       14u
+#define BOTON_PIN_MENOS     15u
+#define BOTON_ANTIRREBOTE_MS 25u    /* el nivel se lee cuando el contacto ya dejo de rebotar */
+#define BOTON_LARGO_MS      2000u   /* sostenido al menos esto: pulsacion larga */
+#define VISTA_MS            10000u  /* en reposo, un boton enciende la pantalla este tiempo */
 
 /* Pantalla OLED SSD1306 128x64 por I2C (bus propio, la IMU va en i2c1) */
 #define PANTALLA_I2C        i2c0
@@ -38,5 +50,20 @@
 #define PANTALLA_I2C_HZ     400000u
 #define PANTALLA_PERIODO_MS 500u     /* cada cuanto se refresca la pantalla */
 #define PRIORIDAD_IRQ_PANTALLA 0xC0u  /* por debajo de la IMU */
+
+/* Reposo: mas de esto sin caminar desde el fin de la marcha apaga la pantalla */
+#define REPOSO_ESPERA_MS    60000u
+
+/* Bateria: 3 pilas AA alcalinas en serie a VSYS. En la Pico, GP29 (ADC3)
+ * lee VSYS/3 con un divisor interno. No conectar el USB con las pilas puestas. */
+#define BATERIA_PIN         29u
+#define BATERIA_ADC_ENTRADA 3u
+#define BATERIA_DIVISOR     3.0f    /* VSYS / voltaje en GP29 */
+#define BATERIA_N_CELDAS    3u
+#define ADC_VREF_V          3.3f    /* referencia del ADC */
+#define BATERIA_CORRECCION  0.987f  /* multimetro / lectura en VSYS: 4,70 V / 4,76 V con USB (23 nov) */
+#define BATERIA_PERIODO_MS  1000u   /* una medida por segundo, tambien en reposo */
+#define BATERIA_TAU_S       30.0f   /* promedio para que los picos de corriente no muevan el % */
+#define PRIORIDAD_IRQ_ADC   0xC0u
 
 #endif

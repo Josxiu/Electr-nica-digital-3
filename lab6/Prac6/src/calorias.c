@@ -9,10 +9,16 @@
 #define ACSM_REPOSO             3.5f
 #define KCAL_POR_LITRO_O2       5.0f    /* energia de 1 litro de oxigeno */
 
+#define PASO_POR_ESTATURA       0.415f  /* largo del paso / estatura */
+
 void calorias_iniciar(calorias_t *c, float peso_kg, float paso_m) {
     c->peso_kg = peso_kg;
     c->paso_m = paso_m;
     c->kcal = 0.0f;
+}
+
+float calorias_paso_por_estatura(float estatura_m) {
+    return PASO_POR_ESTATURA * estatura_m;
 }
 
 void calorias_sumar(calorias_t *c, uint32_t n_pasos, float duracion_s) {

@@ -29,13 +29,11 @@ int main(void) {
     // Secuencia de prueba y bienvenida
     pantalla_limpiar(1);
     pantalla_mostrar();
-    pantalla_esperar_lista();
     sleep_ms(500);
 
     pantalla_limpiar(0);
     pantalla_texto("Hola CalCamino", 8, 28, 1);
     pantalla_mostrar();
-    pantalla_esperar_lista();
     sleep_ms(2000);
 
     uint32_t pasos = 0;
