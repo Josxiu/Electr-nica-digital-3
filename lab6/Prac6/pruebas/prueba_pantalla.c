@@ -47,7 +47,17 @@ int main(void) {
         if (time_reached(prox_refresco) && !pantalla_ocupada()) {
             calorias = pasos * 0.035f;
 
-            if (pantalla_mostrar_actividad(pasos, calorias, bateria_pct)) {
+            char texto[20];
+            pantalla_limpiar(0);
+            pantalla_texto("Pasos", 0, 0, 1);
+            pantalla_dibujar_bateria(100, 0, bateria_pct);
+            snprintf(texto, sizeof(texto), "%5lu", (unsigned long)pasos);
+            pantalla_texto(texto, 4, 14, 3);
+            pantalla_hline(0, 42, PANTALLA_ANCHO, 1);
+            snprintf(texto, sizeof(texto), "%.1f kcal", calorias);
+            pantalla_texto(texto, 0, 48, 1);
+
+            if (pantalla_mostrar()) {
                 pasos += 7;
                 if ((pasos % 70 == 0) && (bateria_pct > 0)) {
                     bateria_pct--;

@@ -154,21 +154,6 @@ void pantalla_dibujar_bateria(int x, int y, uint8_t pct);
  */
 bool pantalla_mostrar(void);
 
-/**
- * @brief Compone y envía la interfaz completa de actividad física (pasos, calorías y batería).
- * @details Dibuja el encabezado `"Pasos"`, el icono de batería, el conteo de pasos a escala 3x,
- *          la línea divisoria horizontal, las calorías con un decimal y el porcentaje numérico,
- *          disparando inmediatamente su envío por interrupciones.
- *
- * @param[in] pasos       Conteo acumulado de pasos a mostrar (alineado a 5 dígitos).
- * @param[in] calorias    Gasto energético estimado en kilocalorías (valores negativos se limitan a `0.0`).
- * @param[in] bateria_pct Porcentaje de carga de batería (`0` a `100`).
- *
- * @retval true  Cuadro compuesto y envío por interrupciones iniciado.
- * @retval false El controlador continúa enviando el cuadro previo; no se modificó el buffer.
- */
-bool pantalla_mostrar_actividad(uint32_t pasos, float calorias, uint8_t bateria_pct);
-
 #endif // PANTALLA_H
 
 /** @} */ // end of pantalla_driver

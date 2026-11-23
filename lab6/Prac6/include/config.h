@@ -36,5 +36,7 @@
 #define PANTALLA_PIN_SDA    8u
 #define PANTALLA_PIN_SCL    9u
 #define PANTALLA_I2C_HZ     400000u
+#define PANTALLA_PERIODO_MS 500u     /* cada cuanto se refresca la pantalla */
+#define PRIORIDAD_IRQ_PANTALLA 0xC0u  /* por debajo de la IMU */
 
 #endif

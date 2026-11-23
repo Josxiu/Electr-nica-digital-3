@@ -7,7 +7,7 @@
  */
 
 #include "pantalla.h"
-#include <stdio.h>
+
 #include <string.h>
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
@@ -432,32 +432,4 @@ bool pantalla_mostrar(void) {
                     I2C_IC_INTR_MASK_M_TX_ABRT_BITS;
 
     return true;
-}
-
-bool pantalla_mostrar_actividad(uint32_t pasos, float calorias, uint8_t bateria_pct) {
-    // Si la pantalla sigue transmitiendo el cuadro anterior, no bloquea el hilo principal
-    if (pantalla_ocupada()) {
-        return false;
-    }
-
-    char buf_pasos[16];
-    char buf_kcal[20];
-    char buf_bat[8];
-
-    if (bateria_pct > 100) bateria_pct = 100;
-    if (calorias < 0.0f) calorias = 0.0f;
-
-    snprintf(buf_pasos, sizeof(buf_pasos), "%5lu", (unsigned long)pasos);
-    snprintf(buf_kcal, sizeof(buf_kcal), "%.1f kcal", calorias);
-    snprintf(buf_bat, sizeof(buf_bat), "%3u%%", (unsigned int)bateria_pct);
-
-    pantalla_limpiar(0);
-    pantalla_texto("Pasos", 0, 0, 1);
-    pantalla_dibujar_bateria(100, 0, bateria_pct);
-    pantalla_texto(buf_pasos, 4, 14, 3);
-    pantalla_hline(0, 42, PANTALLA_ANCHO, 1);
-    pantalla_texto(buf_kcal, 0, 48, 1);
-    pantalla_texto(buf_bat, 96, 48, 1);
-
-    return pantalla_mostrar();
 }
