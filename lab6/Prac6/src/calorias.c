@@ -40,3 +40,7 @@ void calorias_sumar(calorias_t *c, uint32_t n_pasos, float duracion_s) {
 
     c->kcal += litros * KCAL_POR_LITRO_O2;
 }
+
+float calorias_distancia_m(const calorias_t *c, uint32_t n_pasos) {
+    return c->paso_m * (float)n_pasos;
+}

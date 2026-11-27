@@ -29,19 +29,20 @@ int main(void) {
     revisar("1,60 V (pilas nuevas o USB) -> 100 %", bateria_porcentaje(1.60f) == 100);
     revisar("0,50 V (agotadas) -> 0 %", bateria_porcentaje(0.50f) == 0);
 
-    /* Conversion: 1613 cuentas = 1,2995 V en GP29 = 3,898 V en VSYS = 1,2995 V por pila */
+    /* Conversion con factor 0,987: 1613 cuentas -> 1,2826 V por pila (51 %) */
     const float v = bateria_voltaje_celda(1613);
-    revisar("1613 cuentas -> 1,2995 V por pila", fabsf(v - 1.2995f) < 0.0005f);
+    revisar("1613 cuentas -> 1,2826 V por pila (con factor 0,987)",
+            fabsf(v - 1.2826f) < 0.0005f);
 
     /* Promedio: arranca con la primera muestra y un pico aislado casi no lo mueve */
     bateria_t b;
     bateria_iniciar(&b);
     bateria_agregar(&b, 1613);
-    revisar("primera muestra: arranca en 1,2995 V y 56 %",
-            fabsf(b.v_celda - 1.2995f) < 0.0005f && b.pct == 56);
+    revisar("primera muestra: arranca en 1,2826 V y 51 %",
+            fabsf(b.v_celda - 1.2826f) < 0.0005f && b.pct == 51);
     bateria_agregar(&b, 1613 + 248);    /* +0,2 V por pila en una sola muestra */
     revisar("un pico de +0,2 V mueve el promedio menos de 0,01 V",
-            fabsf(b.v_celda - 1.2995f) < 0.01f);
+            fabsf(b.v_celda - 1.2826f) < 0.01f);
 
     printf("\n%s (%d fallas)\n", fallas == 0 ? "Todo bien" : "Hay fallas", fallas);
     return fallas;

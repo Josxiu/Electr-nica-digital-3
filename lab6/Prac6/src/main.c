@@ -217,9 +217,10 @@ static void aplicar_estado(void) {
     }
 }
 
-/** Pantalla normal: pasos, calorias y bateria. */
+/** Pantalla normal: pasos, calorias, distancia y bateria. */
 static void dibujar_normal(void) {
     char texto[20];
+    const float dist_m = calorias_distancia_m(&calorias, pasos.total);
 
     pantalla_texto("Pasos", 0, 0, 1);
     pantalla_dibujar_bateria(70, 0, bateria.pct);
@@ -235,9 +236,17 @@ static void dibujar_normal(void) {
     pantalla_hline(0, 41, PANTALLA_ANCHO, 1);
 
     snprintf(texto, sizeof(texto), "%.1f kcal", calorias.kcal);
-    pantalla_texto(texto, 0, 46, 1);
-    snprintf(texto, sizeof(texto), "%lukg", (unsigned long)usuario.peso_kg);
-    pantalla_texto(texto, 96, 56, 1);
+    pantalla_texto(texto, 0, 45, 1);
+
+    if (dist_m >= 1000.0f) {
+        snprintf(texto, sizeof(texto), "%.2f km", dist_m / 1000.0f);
+    } else {
+        snprintf(texto, sizeof(texto), "%.1f m", dist_m);
+    }
+    pantalla_texto(texto, 0, 55, 1);
+
+    const int n_peso = snprintf(texto, sizeof(texto), "%lukg", (unsigned long)usuario.peso_kg);
+    pantalla_texto(texto, PANTALLA_ANCHO - n_peso * 8, 55, 1);
 }
 
 /** Pantalla de configuracion del peso o de la estatura. */

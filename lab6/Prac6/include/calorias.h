@@ -40,4 +40,12 @@ float calorias_paso_por_estatura(float estatura_m);
  */
 void calorias_sumar(calorias_t *c, uint32_t n_pasos, float duracion_s);
 
+/**
+ * @brief Estima la distancia recorrida en la sesion a partir del total de pasos.
+ * @param c       datos del usuario (usa el largo del paso configurado en la sesion).
+ * @param n_pasos pasos acumulados en la sesion.
+ * @return distancia estimada (m).
+ */
+float calorias_distancia_m(const calorias_t *c, uint32_t n_pasos);
+
 #endif /* CALORIAS_H */

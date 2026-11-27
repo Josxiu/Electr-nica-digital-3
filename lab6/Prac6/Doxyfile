@@ -1,0 +1,18 @@
+# Configuración de Doxygen para la Práctica 6 (CalCamino).
+# Generar: doxygen Doxyfile   ->   doc_c/html/index.html
+PROJECT_NAME           = "Práctica 6 - CalCamino"
+PROJECT_BRIEF          = "Podómetro portátil en C para Raspberry Pi Pico (polling + interrupciones)"
+OUTPUT_DIRECTORY       = doc_c
+OUTPUT_LANGUAGE        = Spanish
+INPUT                  = README.md include src pruebas
+FILE_PATTERNS          = *.c *.h *.md
+RECURSIVE              = YES
+USE_MDFILE_AS_MAINPAGE = README.md
+EXTRACT_STATIC         = YES
+EXTRACT_ALL            = YES
+GENERATE_LATEX         = NO
+EXCLUDE                = build
+INPUT_ENCODING         = UTF-8
+PREDEFINED             = "__not_in_flash_func(x)=x"
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
